@@ -63,11 +63,11 @@
 #define BLOCK 2 * AVX_CACHE 
 #define MARGIN 8
 #define REGION 16
-#define NUM_BLOCKS_PER_DIM 16 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 50
-#define NITER (100+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 1000
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
 #define BYTES 4
 #define MAX_STARS AVX_CACHE
@@ -267,9 +267,11 @@ int main(int argc, char *argv[])
 							for (l=0; l<NPIX2; l++){
 								for (m=0; m<INNER; m++){
 									MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] += F[idx_XYF+k] * dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];
+									// MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] += dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];									
 								} 
 							}
 						}
+
 
 						// Compute the loglikelihood
 		// 					* Compute the new likelihood based on the updated model. Based on 48 x 48 region, region larger than the block.
