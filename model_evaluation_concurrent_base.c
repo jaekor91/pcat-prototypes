@@ -160,6 +160,7 @@ int main(int argc, char *argv[])
 	int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD * AVX_CACHE; // Padding to avoid cache coherence issue.
 	__attribute__((aligned(64))) float DATA[size_of_DATA];
 	__attribute__((aligned(64))) float MODEL[size_of_DATA];
+	__attribute__((aligned(64))) float WEIGHT[size_of_DATA]; // Inverse variance map
 	__attribute__((aligned(64))) float A[size_of_A];
 	__attribute__((aligned(64))) float LOGLIKE[size_of_LOGLIKE]; 
 	// printf("Image size: %d\n", size_of_DATA);
@@ -169,7 +170,8 @@ int main(int argc, char *argv[])
 
 	// ----- Initialize global, shared variables ----- //
 	init_mat_float(DATA, size_of_DATA, 0.0, 1); // Fill data with random values
-	init_mat_float(MODEL, size_of_DATA, 0.0, 0); // Fill data with random values
+	init_mat_float(MODEL, size_of_DATA, 0.0, 0); // Fill data with zero values
+	init_mat_float(MODEL, size_of_DATA, 0.0, 1); // Fill data with random values	
 	init_mat_float(A, size_of_A, 0.0, 1); // Fill data with random values
 	init_mat_float(LOGLIKE, size_of_LOGLIKE, LARGE_LOGLIKE, 0); // Fill data with random values
 
