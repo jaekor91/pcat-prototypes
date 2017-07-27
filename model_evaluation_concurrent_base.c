@@ -182,7 +182,7 @@ int main(int argc, char *argv[])
 	int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * MAX_STARS * AVX_CACHE; // Each block gets MAX_STARS * AVX_CACHE. Note, however, only the first 10 elements matter.
 	__attribute__((aligned(64))) int X[size_of_XYF]; // Assume 4 bytes integer
 	__attribute__((aligned(64))) int Y[size_of_XYF];
-	__attribute__((aligned(64))) float F[size_of_XYF];
+	__attribute__((aligned(64))) float F[size_of_XYF]; // The flux variable is not used 
 	__attribute__((aligned(64))) float dX[size_of_dX];
 
 	// ----- Pre-draw parity variables ----- //
@@ -297,7 +297,7 @@ int main(int argc, char *argv[])
 							idx_col = iby * BLOCK + MARGIN + Y[idx_XYF+k];
 							#pragma omp simd
 							for (l=0; l<NPIX2; l++){
-								MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] +=  F[idx_XYF+k] * PSF[k * NPIX2 + l];
+								MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] +=  PSF[k * NPIX2 + l];
 							}// End of insert of k-th star PSF.
 						}// End of model update
 
@@ -332,7 +332,7 @@ int main(int argc, char *argv[])
 								idx_col = iby * BLOCK + MARGIN + Y[idx_XYF+k];
 								#pragma omp simd
 								for (l=0; l<NPIX2; l++){
-									MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] -=  F[idx_XYF+k] * PSF[k * NPIX2 + l];
+									MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] -=  PSF[k * NPIX2 + l];
 								}
 							}
 						}
