@@ -237,7 +237,7 @@ int main(int argc, char *argv[])
 						__attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
 						__attribute__((aligned(64))) int p_X[MAX_STARS]; // Really you only need ns
 						__attribute__((aligned(64))) int p_Y[MAX_STARS];
-						__attribute__((aligned(64))) float p_A[size_of_A]; // Private copy
+						// __attribute__((aligned(64))) float p_A[size_of_A]; // Private copy
 
 						// Start index for X, Y, F and dX, dY
 						int idx_XYF = block_ID * MAX_STARS;
@@ -253,10 +253,10 @@ int main(int argc, char *argv[])
 								p_dX[AVX_CACHE*k+m] = dX[idx_dX+k*AVX_CACHE+m];
 							}
 						}
-						#pragma omp simd
-						for (k=0; k<size_of_A; k++){
-							p_A[k] = A[k];
-						}
+						// #pragma omp simd
+						// for (k=0; k<size_of_A; k++){
+						// 	p_A[k] = A[k];
+						// }
 
 						// row and col location of the star based on X, Y values.
 						int idx_row; 
@@ -298,7 +298,7 @@ int main(int argc, char *argv[])
 								PSF[k * NPIX2 + l] = 0; // Wipe clean PSF array. 
 								#pragma omp simd
 								for (m=0; m<INNER; m++){
-									PSF[k * NPIX2 + l] += p_dX[k*AVX_CACHE+m] * p_A[m*NPIX2+l];
+									PSF[k * NPIX2 + l] += p_dX[k*AVX_CACHE+m] * A[m*NPIX2+l];
 								} 
 							}// End of PSF calculation for K-th star
 						}
