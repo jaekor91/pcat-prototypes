@@ -74,7 +74,7 @@
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + 4 * MARGIN)
-#define HASHING 0 // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
+#define HASHING MARGIN // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
 void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
@@ -245,7 +245,7 @@ int main(int argc, char *argv[])
 						__attribute__((aligned(64)))  float p_dX[AVX_CACHE * ns];
 						__attribute__((aligned(64)))  int p_X[MAX_STARS]; // Really you only need ns
 						__attribute__((aligned(64))) int p_Y[MAX_STARS];						
-						// __attribute__((aligned(64))) int HASH[REGION*REGION]; // Hashing variable
+						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
 
 						// Storage for PSF
 						__attribute__((aligned(64))) float PSF[MAX_STARS * NPIX2];						
@@ -271,6 +271,8 @@ int main(int argc, char *argv[])
 						// 	p_A[k] = A[k];
 						// }
 
+
+
 						// row and col location of the star based on X, Y values.
 						int idx_row; 
 						int idx_col;
@@ -278,10 +280,34 @@ int main(int argc, char *argv[])
 						// Update the model by inserting ns stars
 						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX. 
 
-						// Version 2.
+						// Hashing. This steps reduces number of PSFs that need to be evaluated.
+					    for (k=0; k<REGION*REGION; k++) { hash[k] = -1; }
+					    int jstar = 0; // Number of stars after coalescing.
+						int istar;
+						int xx, yy;
+					    for (istar = 0; istar < ns; istar++)
+					    {
+					        xx = p_X[istar];
+					        yy = p_Y[istar];
+					        int idx = yy*REGION+xx;
+					        if (hash[idx] != -1) {
+					        	#pragma omp simd
+					            for (l=0; l<INNER; l++) { p_dX[hash[idx]*AVX_CACHE+l] += p_dX[istar*AVX_CACHE+l]; }
+					        }
+					        else {
+					            hash[idx] = jstar;
+					            #pragma omp simd
+					            for (l=0; l<INNER; l++) { p_dX[hash[idx]*AVX_CACHE+l] = p_dX[istar*AVX_CACHE+l]; }
+					            p_X[jstar] = p_X[istar];
+					            p_Y[jstar] = p_Y[istar];
+					            jstar++;
+					        }
+					    }
+					    // printf("%d\n", jstar);
+
 						// Note: Whether storing PSF and adding 
 						// Calculate PSF, store, and then insert
-						for (k=0; k<ns; k++){
+						for (k=0; k<jstar; k++){
 							// Compute PSF and store
 							#pragma omp simd
 							for (l=0; l<NPIX2; l++){
@@ -293,7 +319,7 @@ int main(int argc, char *argv[])
 							}// End of PSF calculation for K-th star
 						}
 						// Begin Insert
-						for (k=0; k<ns; k++){
+						for (k=0; k<jstar; k++){
 							// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
 							// Add PSF into the model
 							idx_row = ibx * BLOCK + MARGIN + p_X[k];
@@ -329,7 +355,7 @@ int main(int argc, char *argv[])
 						// If bigger then undo the addition by subtracting what was added to the model image.						
 						if (p_loglike > b_loglike){
 							// Begin subtraction
-							for (k=0; k<ns; k++){
+							for (k=0; k<jstar; k++){
 								// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
 								// Add PSF into the model
 								idx_row = ibx * BLOCK + MARGIN + p_X[k];
