@@ -74,7 +74,7 @@
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + 4 * MARGIN)
-#define HASHING 1 // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
+#define HASHING 0 // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
 void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
@@ -244,8 +244,12 @@ int main(int argc, char *argv[])
 						// Manual pre-fetching might be bad...
 						__attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
 						__attribute__((aligned(64))) int p_X[MAX_STARS]; // Really you only need ns
-						__attribute__((aligned(64))) int p_Y[MAX_STARS];
-						// __attribute__((aligned(64))) float p_A[size_of_A]; // Private copy
+						__attribute__((aligned(64))) int p_Y[MAX_STARS];						
+						// __attribute__((aligned(64))) int HASH[REGION*REGION]; // Hashing variable
+						// __attribute__((aligned(64))) float p_A[size_of_A]; // Private copy of A. 
+
+						// Storage for PSF
+						__attribute__((aligned(64))) float PSF[MAX_STARS * NPIX2];						
 
 						// Start index for X, Y, F and dX, dY
 						int idx_XYF = block_ID * MAX_STARS;
@@ -296,8 +300,6 @@ int main(int argc, char *argv[])
 
 						// Version 2.
 						// Note: Whether storing PSF and adding 
-						// Storage for PSF
-						__attribute__((aligned(64))) float PSF[MAX_STARS * NPIX2];
 						// Calculate PSF, store, and then insert
 						for (k=0; k<ns; k++){
 							// Compute PSF and store
