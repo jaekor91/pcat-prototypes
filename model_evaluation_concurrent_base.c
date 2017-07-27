@@ -234,17 +234,30 @@ int main(int argc, char *argv[])
 
 						// Read into cache
 						// Manual pre-fetching might be bad...
-						// __attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
-						// __attribute__((aligned(64))) float p_dY[AVX_CACHE * ns];
-						// __attribute__((aligned(64))) float p_F[MAX_STARS];
-						// __attribute__((aligned(64))) int p_X[MAX_STARS];
-						// __attribute__((aligned(64))) int p_Y[MAX_STARS]
-						// for (k=0; k<MAX_STARS; k++){
-						// }						
+						__attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
+						__attribute__((aligned(64))) int p_X[MAX_STARS]; // Really you only need ns
+						__attribute__((aligned(64))) int p_Y[MAX_STARS];
+						__attribute__((aligned(64))) float p_A[size_of_A]; // Private copy
 
 						// Start index for X, Y, F and dX, dY
 						int idx_XYF = block_ID * MAX_STARS;
-						int idx_dX = block_ID * MAX_STARS * AVX_CACHE;
+						int idx_dX = block_ID * MAX_STARS * AVX_CACHE;						
+						#pragma omp simd
+						for (k=0; k<MAX_STARS; k++){ // You only need ns
+							p_X[k] = X[idx_XYF+k];
+							p_Y[k] = Y[idx_XYF+k];
+						}
+						#pragma omp simd 
+						for (k=0; k<ns; k++){
+							for (m=0; m<AVX_CACHE; m++){
+								p_dX[AVX_CACHE*k+m] = dX[idx_dX+k*AVX_CACHE+m];
+							}
+						}
+						#pragma omp simd
+						for (k=0; k<size_of_A; k++){
+							p_A[k] = A[k];
+						}
+
 						// row and col location of the star based on X, Y values.
 						int idx_row; 
 						int idx_col;						
@@ -285,7 +298,7 @@ int main(int argc, char *argv[])
 								PSF[k * NPIX2 + l] = 0; // Wipe clean PSF array. 
 								#pragma omp simd
 								for (m=0; m<INNER; m++){
-									PSF[k * NPIX2 + l] += dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];
+									PSF[k * NPIX2 + l] += p_dX[k*AVX_CACHE+m] * p_A[m*NPIX2+l];
 								} 
 							}// End of PSF calculation for K-th star
 						}
@@ -293,8 +306,8 @@ int main(int argc, char *argv[])
 						for (k=0; k<ns; k++){
 							// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
 							// Add PSF into the model
-							idx_row = ibx * BLOCK + MARGIN + X[idx_XYF+k];
-							idx_col = iby * BLOCK + MARGIN + Y[idx_XYF+k];
+							idx_row = ibx * BLOCK + MARGIN + p_X[k];
+							idx_col = iby * BLOCK + MARGIN + p_Y[k];
 							#pragma omp simd
 							for (l=0; l<NPIX2; l++){
 								MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] +=  PSF[k * NPIX2 + l];
@@ -328,8 +341,8 @@ int main(int argc, char *argv[])
 							for (k=0; k<ns; k++){
 								// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
 								// Add PSF into the model
-								idx_row = ibx * BLOCK + MARGIN + X[idx_XYF+k];
-								idx_col = iby * BLOCK + MARGIN + Y[idx_XYF+k];
+								idx_row = ibx * BLOCK + MARGIN + p_X[k];
+								idx_col = iby * BLOCK + MARGIN + p_Y[k];
 								#pragma omp simd
 								for (l=0; l<NPIX2; l++){
 									MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] -=  PSF[k * NPIX2 + l];
