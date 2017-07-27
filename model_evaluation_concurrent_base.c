@@ -242,11 +242,10 @@ int main(int argc, char *argv[])
 
 						// Read into cache
 						// Manual pre-fetching might be bad...
-						__attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
-						__attribute__((aligned(64))) int p_X[MAX_STARS]; // Really you only need ns
+						__attribute__((aligned(64)))  float p_dX[AVX_CACHE * ns];
+						__attribute__((aligned(64)))  int p_X[MAX_STARS]; // Really you only need ns
 						__attribute__((aligned(64))) int p_Y[MAX_STARS];						
 						// __attribute__((aligned(64))) int HASH[REGION*REGION]; // Hashing variable
-						// __attribute__((aligned(64))) float p_A[size_of_A]; // Private copy of A. 
 
 						// Storage for PSF
 						__attribute__((aligned(64))) float PSF[MAX_STARS * NPIX2];						
@@ -265,6 +264,8 @@ int main(int argc, char *argv[])
 								p_dX[AVX_CACHE*k+m] = dX[idx_dX+k*AVX_CACHE+m];
 							}
 						}
+						// This actually seems to slow down the program.
+						// __attribute__((aligned(64))) float p_A[size_of_A]; // Private copy of A. 
 						// #pragma omp simd
 						// for (k=0; k<size_of_A; k++){
 						// 	p_A[k] = A[k];
@@ -272,31 +273,10 @@ int main(int argc, char *argv[])
 
 						// row and col location of the star based on X, Y values.
 						int idx_row; 
-						int idx_col;						
+						int idx_col;
 						int psf_width = NPIX; // Not sure why simply using NPIX rather than a variable.
 						// Update the model by inserting ns stars
 						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX. 
-
-						// Version 1. Insert without intermitten storage. Make sure to multiply by the new flux.
-						// Note: Go with version two as it doesn't require redundant computation.
-						// (Note that killing a star is like giving a negative flux.)
-						// for (k=0; k<ns; k++){
-						// 	idx_row = ibx * BLOCK + MARGIN + X[idx_XYF+k];
-						// 	idx_col = iby * BLOCK + MARGIN + Y[idx_XYF+k];
-						// 	// // Check whether the row and col look okay
-						// 	// if (k==0){
-						// 	// 	printf("idx_row,col: %5d, %5d\n", idx_row, idx_col);
-						// 	// }
-
-						// 	// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
-						// 	#pragma omp simd
-						// 	for (l=0; l<NPIX2; l++){
-						// 		for (m=0; m<INNER; m++){
-						// 			MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] += F[idx_XYF+k] * dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];
-						// 			// MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] += dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];									
-						// 		} 
-						// 	}
-						// }
 
 						// Version 2.
 						// Note: Whether storing PSF and adding 
@@ -338,6 +318,7 @@ int main(int argc, char *argv[])
 						// #pragma omp parallel reduction (+:p_loglike) 
 						// Note: Do not use omp parallel reduction for such a tight loop
 						int idx;
+						// Currently model evaluation takes about 5 us.
 						for (l=0; l < BLOCK_LOGLIKE * BLOCK_LOGLIKE; l++){
 							idx = (idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width);
 							p_loglike += WEIGHT[idx]*(MODEL[idx]-DATA[idx])*(MODEL[idx]-DATA[idx]);
