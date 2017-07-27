@@ -63,16 +63,17 @@
 #define BLOCK 2 * AVX_CACHE 
 #define MARGIN 8
 #define REGION 16
-#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 8 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
 #define NITER_BURNIN 1000
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
 #define BYTES 4
 #define MAX_STARS AVX_CACHE
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
-#define IMAGE_SIZE IMAGE_WIDTH * IMAGE_WIDTH
+#define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
+#define BLOCK_LOGLIKE (BLOCK + 4 * MARGIN)
 
 
 void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
@@ -161,8 +162,10 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) float MODEL[size_of_DATA];
 	__attribute__((aligned(64))) float A[size_of_A];
 	__attribute__((aligned(64))) float LOGLIKE[size_of_LOGLIKE]; 
-	printf("Image size: %d\n", size_of_DATA);
+	// printf("Image size: %d\n", size_of_DATA);
 	printf("Image width: %d\n", IMAGE_WIDTH);
+	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
+	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM / 4);
 
 	// ----- Initialize global, shared variables ----- //
 	init_mat_float(DATA, size_of_DATA, 0.0, 1); // Fill data with random values
@@ -227,18 +230,13 @@ int main(int argc, char *argv[])
 						int block_ID = ibx * NUM_BLOCKS_PER_DIM_W_PAD + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 						// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
 
-						// Read into cache necessary values. (Need to verify)
-						float b_loglike = LOGLIKE[block_ID * AVX_CACHE];// Loglikelihood corresponding to the block.
-						float p_loglike = 0; // Proposed move's loglikehood
-
-						// // try aligning? Would it be faster? 
+						// Read into cache
 						// Manual pre-fetching might be bad...
 						// __attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
 						// __attribute__((aligned(64))) float p_dY[AVX_CACHE * ns];
 						// __attribute__((aligned(64))) float p_F[MAX_STARS];
 						// __attribute__((aligned(64))) int p_X[MAX_STARS];
 						// __attribute__((aligned(64))) int p_Y[MAX_STARS]
-						// Read into cache
 						// for (k=0; k<MAX_STARS; k++){
 						// }						
 
@@ -251,36 +249,90 @@ int main(int argc, char *argv[])
 						int psf_width = NPIX; // Not sure why simply using NPIX rather than a variable.
 						// Update the model by inserting ns stars
 						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX. 
-						// Insert without intermitten storage. Make sure to multiply by the new flux. 
+
+						// Version 1. Insert without intermitten storage. Make sure to multiply by the new flux.
+						// Note: Go with version two as it doesn't require redundant computation.
 						// (Note that killing a star is like giving a negative flux.)
+						// for (k=0; k<ns; k++){
+						// 	idx_row = ibx * BLOCK + MARGIN + X[idx_XYF+k];
+						// 	idx_col = iby * BLOCK + MARGIN + Y[idx_XYF+k];
+						// 	// // Check whether the row and col look okay
+						// 	// if (k==0){
+						// 	// 	printf("idx_row,col: %5d, %5d\n", idx_row, idx_col);
+						// 	// }
 
+						// 	// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
+						// 	#pragma omp simd
+						// 	for (l=0; l<NPIX2; l++){
+						// 		for (m=0; m<INNER; m++){
+						// 			MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] += F[idx_XYF+k] * dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];
+						// 			// MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] += dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];									
+						// 		} 
+						// 	}
+						// }
+
+						// Version 2.
+						// Note: Whether storing PSF and adding 
+						// Storage for PSF
+						__attribute__((aligned(64))) float PSF[MAX_STARS * NPIX2];
+						// Calculate PSF, store, and then insert
 						for (k=0; k<ns; k++){
-							idx_row = ibx * BLOCK + MARGIN + X[idx_XYF+k];
-							idx_col = iby * BLOCK + MARGIN + Y[idx_XYF+k];
-							// // Check whether the row and col look okay
-							// if (k==0){
-							// 	printf("idx_row,col: %5d, %5d\n", idx_row, idx_col);
-							// }
-
-							// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
+							// Compute PSF and store
 							#pragma omp simd
 							for (l=0; l<NPIX2; l++){
+								PSF[k * NPIX2 + l] = 0; // Wipe clean PSF array. 
+								#pragma omp simd
 								for (m=0; m<INNER; m++){
-									MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] += F[idx_XYF+k] * dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];
-									// MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] += dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];									
+									PSF[k * NPIX2 + l] += dX[idx_dX+k*AVX_CACHE+m] * A[m*NPIX2+l];
 								} 
-							}
+							}// End of PSF calculation for K-th star
 						}
+						// Begin Insert
+						for (k=0; k<ns; k++){
+							// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
+							// Add PSF into the model
+							idx_row = ibx * BLOCK + MARGIN + X[idx_XYF+k];
+							idx_col = iby * BLOCK + MARGIN + Y[idx_XYF+k];
+							#pragma omp simd
+							for (l=0; l<NPIX2; l++){
+								MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] +=  F[idx_XYF+k] * PSF[k * NPIX2 + l];
+							}// End of insert of k-th star PSF.
+						}// End of model update
 
 
-						// Compute the loglikelihood
-		// 					* Compute the new likelihood based on the updated model. Based on 48 x 48 region, region larger than the block.
+						// ----- Compute the new likelihood based on the updated model. ----- //
+						// Based on 48 x 48 region, region larger than the block.
+						// Read into cache necessary values. (Need to verify)
+						float b_loglike = LOGLIKE[block_ID * AVX_CACHE];// Loglikelihood corresponding to the block.
+						float p_loglike = 0; // Proposed move's loglikehood
 
-						// Compare and decide whether to update the model or not.
-		// 					* Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
-		// 					If bigger then undo the addition by subtracting what was added to the model image.						
+						//simd reduction
+						idx_row = ibx * BLOCK - 2 * MARGIN;
+						idx_col = iby * BLOCK - 2 * MARGIN;
+						int loglike_block_width = BLOCK_LOGLIKE;
+						// #pragma omp parallel reduction (+:p_loglike) 
+						// Note: Do not use omp parallel reduction for such a tight loop
+						for (l=0; l < BLOCK_LOGLIKE * BLOCK_LOGLIKE; l++){
+							// 	MODEL[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)]							
+							p_loglike += (MODEL[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)]-DATA[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)])*(MODEL[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)]-DATA[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)]);
+						}
+						// ********* Need to be corrected! ********* //
+
+
+						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
+						// If bigger then undo the addition by subtracting what was added to the model image.						
 						if (p_loglike > b_loglike){
-							// Undo
+							// Begin subtraction
+							for (k=0; k<ns; k++){
+								// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
+								// Add PSF into the model
+								idx_row = ibx * BLOCK + MARGIN + X[idx_XYF+k];
+								idx_col = iby * BLOCK + MARGIN + Y[idx_XYF+k];
+								#pragma omp simd
+								for (l=0; l<NPIX2; l++){
+									MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] -=  F[idx_XYF+k] * PSF[k * NPIX2 + l];
+								}
+							}
 						}
 						else{
 							// Accept the proposal
