@@ -74,6 +74,7 @@
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + 4 * MARGIN)
+#define HASHING 1 // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
 void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
@@ -103,8 +104,15 @@ void init_mat_int(int* mat, int size, int min, int max)
 	// Fill the integer matrix with random number in [min, max)
 	int i;
 	int diff = max-min;
-	for (i=0; i<size; i++){
-		mat[i] = (rand() % diff) + min;
+	if (max>0){
+		for (i=0; i<size; i++){
+			mat[i] = (rand() % diff) + min;
+		}
+	}
+	if (max==0){
+		for (i=0; i<size; i++){
+			mat[i] = 0;
+		}
 	}
 	return;
 }
@@ -213,8 +221,8 @@ int main(int argc, char *argv[])
 			// Randomly generate X, Y, dX, dY, F
 			init_mat_float(dX, size_of_dX, 0.0, 1); 
 			init_mat_float(F, size_of_XYF, 0.0, 1); 
-			init_mat_int(X, size_of_XYF, 0, 2); // X, Y are either 0 or 1 in order to see how much compute is saved with the hashing technique.
-			init_mat_int(Y, size_of_XYF, 0, 2);			
+			init_mat_int(X, size_of_XYF, 0, HASHING); 
+			init_mat_int(Y, size_of_XYF, 0, HASHING);			
 
 			// print_mat_int(X, size_of_XYF); // Used to check the values of the matrix X, Y.
 
