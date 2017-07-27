@@ -63,11 +63,11 @@
 #define BLOCK 2 * AVX_CACHE 
 #define MARGIN 8
 #define REGION 16
-#define NUM_BLOCKS_PER_DIM 8 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 1000
-#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 10000
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
 #define BYTES 4
 #define MAX_STARS AVX_CACHE
@@ -319,7 +319,6 @@ int main(int argc, char *argv[])
 							idx = (idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width);
 							p_loglike += WEIGHT[idx]*(MODEL[idx]-DATA[idx])*(MODEL[idx]-DATA[idx]);
 						}
-						// ********* Need to be corrected! ********* //
 
 
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
@@ -341,7 +340,6 @@ int main(int argc, char *argv[])
 							// Accept the proposal
 							LOGLIKE[block_ID * AVX_CACHE] = p_loglike;// Loglikelihood corresponding to the block.							
 						}
-
 					} // End of y block loop
 				} // End of x block loop
 			}// End of OMP parallel section
