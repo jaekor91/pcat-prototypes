@@ -218,7 +218,7 @@ int main(int argc, char *argv[])
 
 			// print_mat_int(X, size_of_XYF); // Used to check the values of the matrix X, Y.
 
-			start = omp_get_wtime(); // Timing starts here
+			start = omp_get_wtime(); // Timing starts here 
 			// ----- Model evaluation, followed by acceptance or rejection. ----- //
 			// Iterating through all the blocks.
 			// IMPORTANT: X is the row direction and Y is the column direction.
