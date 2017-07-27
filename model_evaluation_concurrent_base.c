@@ -314,9 +314,10 @@ int main(int argc, char *argv[])
 						int loglike_block_width = BLOCK_LOGLIKE;
 						// #pragma omp parallel reduction (+:p_loglike) 
 						// Note: Do not use omp parallel reduction for such a tight loop
+						int idx;
 						for (l=0; l < BLOCK_LOGLIKE * BLOCK_LOGLIKE; l++){
-							// 	MODEL[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)]							
-							p_loglike += (MODEL[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)]-DATA[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)])*(MODEL[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)]-DATA[(idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width)]);
+							idx = (idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width);
+							p_loglike += WEIGHT[idx]*(MODEL[idx]-DATA[idx])*(MODEL[idx]-DATA[idx]);
 						}
 						// ********* Need to be corrected! ********* //
 
