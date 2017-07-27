@@ -213,8 +213,8 @@ int main(int argc, char *argv[])
 			// Randomly generate X, Y, dX, dY, F
 			init_mat_float(dX, size_of_dX, 0.0, 1); 
 			init_mat_float(F, size_of_XYF, 0.0, 1); 
-			init_mat_int(X, size_of_XYF, 0, MARGIN);
-			init_mat_int(Y, size_of_XYF, 0, MARGIN);			
+			init_mat_int(X, size_of_XYF, 0, 2); // X, Y are either 0 or 1 in order to see how much compute is saved with the hashing technique.
+			init_mat_int(Y, size_of_XYF, 0, 2);			
 
 			// print_mat_int(X, size_of_XYF); // Used to check the values of the matrix X, Y.
 
