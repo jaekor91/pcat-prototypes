@@ -66,15 +66,15 @@
 #define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 10000
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 1000
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
 #define BYTES 4
-#define MAX_STARS AVX_CACHE
+#define MAX_STARS AVX_CACHE * 10
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + 4 * MARGIN)
-#define HASHING MARGIN // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
+#define HASHING 0 // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
 void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
@@ -158,8 +158,8 @@ int main(int argc, char *argv[])
 
 	// ----- Declare global, shared variables ----- //
 	// Number of stars
-	int nstar[6] = {1, 2, 3, 4, 8, 16};
-	int size_of_nstar = 6;
+	int size_of_nstar = 7;
+	int nstar[7] = {1, 2, 3, 4, 8, 16, MAX_STARS};
 
 
 	// * Pre-allocate image DATA, MODEL, design matrix, num_stars, and loglike
@@ -243,12 +243,12 @@ int main(int argc, char *argv[])
 						// Read into cache
 						// Manual pre-fetching might be bad...
 						__attribute__((aligned(64)))  float p_dX[AVX_CACHE * ns];
-						__attribute__((aligned(64)))  int p_X[MAX_STARS]; // Really you only need ns
-						__attribute__((aligned(64))) int p_Y[MAX_STARS];						
+						__attribute__((aligned(64)))  int p_X[ns]; // Really you only need ns
+						__attribute__((aligned(64))) int p_Y[ns];						
 						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
 
 						// Storage for PSF
-						__attribute__((aligned(64))) float PSF[MAX_STARS * NPIX2];						
+						__attribute__((aligned(64))) float PSF[ns * NPIX2];						
 
 						// Start index for X, Y, F and dX, dY
 						int idx_XYF = block_ID * MAX_STARS;
