@@ -60,10 +60,10 @@
 #define AVX_CACHE 16 // Number of floats that can fit into AVX512
 #define NPIX 25
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
-#define BLOCK 2 * AVX_CACHE 
-#define MARGIN 8
-#define REGION 16
-#define NUM_BLOCKS_PER_DIM 8 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define MARGIN 4
+#define REGION 8
+#define BLOCK REGION + 2 * MARGIN
+#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
 #define NITER_BURNIN 1000
@@ -73,7 +73,7 @@
 #define MAX_STARS 160
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
-#define BLOCK_LOGLIKE (BLOCK + 4 * MARGIN)
+#define BLOCK_LOGLIKE (BLOCK + 2 * MARGIN + REGION/2)
 #define HASHING REGION // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
@@ -347,7 +347,7 @@ int main(int argc, char *argv[])
 
 						int idx_start, idx;
 						#pragma omp simd
-						for (l=0; l < BLOCK_LOGLIKE; l++){ // 48
+						for (l=0; l < BLOCK_LOGLIKE; l++){ // 32
 							for (m=0; m < BLOCK_LOGLIKE/AVX_CACHE; m++){
 								idx_start = (idx_row+l)*IMAGE_WIDTH + (idx_col+m*AVX_CACHE);							
 							}
