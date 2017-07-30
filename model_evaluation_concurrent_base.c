@@ -48,12 +48,12 @@
 #define MARGIN 4 // Margin width of the block
 #define REGION 8 // Core proposal region
 #define BLOCK (REGION + (2 * MARGIN))
-#define NUM_BLOCKS_PER_DIM 2	// Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 32	// Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 10000 // Number of burn-in to perform
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 100 // Number of burn-in to perform
+#define NITER (100+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 16 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -155,9 +155,9 @@ int main(int argc, char *argv[])
 
 	// ----- Declare global, shared variables ----- //
 	// Number of stars to perturb/add.
-	int size_of_nstar = 7;
-	int nstar[7] = {0, 1, 2, 3, 4, 8, 16};
-	// Try max case
+	int size_of_nstar = 8;
+	int nstar[8] = {0, 1, 2, 3, 4, 8, 16, MAX_STARS};
+	// TRY MAX
 	// int size_of_nstar = 1;
 	// int nstar[1] = {MAX_STARS};	
 
@@ -172,6 +172,7 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix
 	__attribute__((aligned(64))) float LOGLIKE[size_of_LOGLIKE]; // loglike without padding. Turns out this is better.
 	// printf("Image size: %d\n", size_of_DATA);
+	printf("NITER: %d\n", (NITER-NITER_BURNIN));
 	printf("Image width: %d\n", IMAGE_WIDTH);
 	printf("Block width: %d\n", BLOCK);
 	printf("Loglike bock width: %d\n", BLOCK_LOGLIKE); 		
@@ -396,7 +397,8 @@ int main(int argc, char *argv[])
 
 	// Calculatin the time took.
 	dt_per_iter = (dt / (NITER-NITER_BURNIN)) * (1e06); // Burn-in	
+	double dt_eff = dt_per_iter/ (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM / 4);
 	// dt_per_iter = (dt / NITER) * (1e06); // Actual	
-	printf("ns =%5d, elapsed time per iter (us): %.3f\n", ns, dt_per_iter);
+	printf("ns =%5d, elapsed time per iter (us): %.3f, t_eff (us): %.3f\n", ns, dt_per_iter, dt_eff);
 	} // End of nstar loop
 }
