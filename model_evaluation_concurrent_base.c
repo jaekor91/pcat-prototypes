@@ -63,18 +63,18 @@
 #define BLOCK 2 * AVX_CACHE 
 #define MARGIN 8
 #define REGION 16
-#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 8 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
 #define NITER_BURNIN 1000
-#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define NITER (100+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
 #define BYTES 4
 #define MAX_STARS AVX_CACHE * 10
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + 4 * MARGIN)
-#define HASHING 0 // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
+#define HASHING REGION // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
 void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
@@ -340,16 +340,30 @@ int main(int argc, char *argv[])
 						//simd reduction
 						idx_row = ibx * BLOCK - 2 * MARGIN;
 						idx_col = iby * BLOCK - 2 * MARGIN;
-						int loglike_block_width = BLOCK_LOGLIKE;
+						int loglike_block_width = BLOCK_LOGLIKE;					
 						// #pragma omp parallel reduction (+:p_loglike) 
 						// Note: Do not use omp parallel reduction for such a tight loop
-						int idx;
-						// Currently model evaluation takes about 5 us.
-						for (l=0; l < BLOCK_LOGLIKE * BLOCK_LOGLIKE; l++){
-							idx = (idx_row+l/loglike_block_width)*IMAGE_WIDTH + (idx_col+l%loglike_block_width);
-							p_loglike += WEIGHT[idx]*(MODEL[idx]-DATA[idx])*(MODEL[idx]-DATA[idx]);
+						__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];
+						#pragma omp simd
+						for (k=0; k<AVX_CACHE; k++){
+							loglike_temp[k] = 0;
 						}
 
+						int idx_start, idx;
+						#pragma omp simd
+						for (l=0; l < BLOCK_LOGLIKE; l++){ // 48
+							for (m=0; m < BLOCK_LOGLIKE/AVX_CACHE; m++){
+								idx_start = (idx_row+l)*IMAGE_WIDTH + (idx_col+m*AVX_CACHE);							
+							}
+							for (k=0; k<AVX_CACHE; k++){
+								idx = idx_start+k;
+								loglike_temp[k] += WEIGHT[idx]*(MODEL[idx]-DATA[idx])*(MODEL[idx]-DATA[idx]);
+							}
+						}
+
+						for (k=0; k<AVX_CACHE; k++){
+							p_loglike += loglike_temp[k];
+						}
 
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
 						// If bigger then undo the addition by subtracting what was added to the model image.						
