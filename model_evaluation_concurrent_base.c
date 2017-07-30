@@ -59,7 +59,7 @@
 #define MAX_STARS 16 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
-#define BLOCK_LOGLIKE (BLOCK + 2 * MARGIN + REGION/2)
+#define BLOCK_LOGLIKE (BLOCK + (2 * MARGIN)+ REGION) // BLOCK_LOGLIKE is twice larger in size in each dimension.
 #define HASHING REGION // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
@@ -173,7 +173,8 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) float LOGLIKE[size_of_LOGLIKE]; // loglike without padding. Turns out this is better.
 	// printf("Image size: %d\n", size_of_DATA);
 	printf("Image width: %d\n", IMAGE_WIDTH);
-	printf("Block width: %d\n", BLOCK); 	
+	printf("Block width: %d\n", BLOCK);
+	printf("Loglike bock width: %d\n", BLOCK_LOGLIKE); 		
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM / 4);
 
@@ -222,7 +223,11 @@ int main(int argc, char *argv[])
 			init_mat_float(dX, size_of_dX, 0.0, 1); 
 			// init_mat_float(F, size_of_XYF, 0.0, 1); 
 			init_mat_int(X, size_of_XYF, 0, HASHING); 
-			init_mat_int(Y, size_of_XYF, 0, HASHING);			
+			init_mat_int(Y, size_of_XYF, 0, HASHING);
+
+			// For experimentign with offsets.
+			// int offset_X = generate_offset(0, REGION);
+			// int offset_Y = generate_offset(0, REGION);
 
 			// print_mat_int(X, size_of_XYF); // Used to check the values of the matrix X, Y.
 
@@ -334,8 +339,8 @@ int main(int argc, char *argv[])
 						float p_loglike = 0; // Proposed move's loglikehood
 
 						//simd reduction
-						idx_row = ibx * BLOCK - 2 * MARGIN - (REGION/2);
-						idx_col = iby * BLOCK - 2 * MARGIN - (REGION/2);
+						idx_row = ibx * BLOCK - MARGIN - (REGION/2);
+						idx_col = iby * BLOCK - MARGIN - (REGION/2);
 
 						__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];
 						#pragma omp simd
@@ -361,7 +366,7 @@ int main(int argc, char *argv[])
 
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
 						// If bigger then undo the addition by subtracting what was added to the model image.						
-						if (flip_coin()){
+						if (flip_coin()){ // Currently, use flip coin.
 							// Begin subtraction
 							for (k=0; k<jstar; k++){
 								// Add PSF into the model
