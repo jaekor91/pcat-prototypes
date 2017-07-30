@@ -63,11 +63,11 @@
 #define BLOCK 2 * AVX_CACHE 
 #define MARGIN 8
 #define REGION 16
-#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 8 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 5000
-#define NITER (5000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 1000
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
 #define BYTES 4
 #define MAX_STARS 160
@@ -338,7 +338,6 @@ int main(int argc, char *argv[])
 						//simd reduction
 						idx_row = ibx * BLOCK - 2 * MARGIN;
 						idx_col = iby * BLOCK - 2 * MARGIN;
-						int loglike_block_width = BLOCK_LOGLIKE;					
 
 						__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];
 						#pragma omp simd
