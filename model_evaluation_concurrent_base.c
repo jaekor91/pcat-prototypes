@@ -63,14 +63,14 @@
 #define BLOCK 2 * AVX_CACHE 
 #define MARGIN 8
 #define REGION 16
-#define NUM_BLOCKS_PER_DIM 8 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 500
-#define NITER (100+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 5000
+#define NITER (5000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
 #define BYTES 4
-#define MAX_STARS AVX_CACHE * 10
+#define MAX_STARS 160
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + 4 * MARGIN)
@@ -165,7 +165,7 @@ int main(int argc, char *argv[])
 	// * Pre-allocate image DATA, MODEL, design matrix, num_stars, and loglike
 	int size_of_DATA = IMAGE_SIZE;
 	int size_of_A = NPIX2 * INNER;
-	int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD * AVX_CACHE; // Padding to avoid cache coherence issue.
+	int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD; // Padding to avoid cache coherence issue.
 	__attribute__((aligned(64))) float DATA[size_of_DATA];
 	__attribute__((aligned(64))) float MODEL[size_of_DATA];
 	__attribute__((aligned(64))) float WEIGHT[size_of_DATA]; // Inverse variance map
@@ -334,7 +334,7 @@ int main(int argc, char *argv[])
 						// ----- Compute the new likelihood based on the updated model. ----- //
 						// Based on 48 x 48 region, region larger than the block.
 						// Read into cache necessary values. (Need to verify)
-						float b_loglike = LOGLIKE[block_ID * AVX_CACHE];// Loglikelihood corresponding to the block.
+						float b_loglike = LOGLIKE[block_ID];// Loglikelihood corresponding to the block.
 						float p_loglike = 0; // Proposed move's loglikehood
 
 						//simd reduction
@@ -382,7 +382,7 @@ int main(int argc, char *argv[])
 						}
 						else{
 							// Accept the proposal
-							LOGLIKE[block_ID * AVX_CACHE] = p_loglike;// Loglikelihood corresponding to the block.							
+							LOGLIKE[block_ID] = p_loglike;// Loglikelihood corresponding to the block.							
 						}
 					} // End of y block loop
 				} // End of x block loop
