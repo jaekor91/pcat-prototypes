@@ -276,7 +276,7 @@ int main(int argc, char *argv[])
 						// row and col location of the star based on X, Y values.
 						int idx_row; 
 						int idx_col;
-						int psf_width = NPIX; // Not sure why simply using NPIX rather than a variable.
+						// int psf_width = NPIX; // Not sure why simply using NPIX rather than a variable.
 						// Update the model by inserting ns stars
 						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX. 
 
@@ -303,9 +303,7 @@ int main(int argc, char *argv[])
 					            jstar++;
 					        }
 					    }
-					    // printf("%d\n", jstar);
 
-						// Note: Whether storing PSF and adding 
 						// Calculate PSF, store, and then insert
 						for (k=0; k<jstar; k++){
 							// Compute PSF and store
@@ -326,7 +324,7 @@ int main(int argc, char *argv[])
 							idx_col = iby * BLOCK + MARGIN + p_Y[k];
 							#pragma omp simd
 							for (l=0; l<NPIX2; l++){
-								MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] +=  PSF[k * NPIX2 + l];
+								MODEL[(idx_row+l/NPIX)*IMAGE_WIDTH + (idx_col+l%NPIX)] +=  PSF[k * NPIX2 + l];
 							}// End of insert of k-th star PSF.
 						}// End of model update
 
@@ -341,8 +339,7 @@ int main(int argc, char *argv[])
 						idx_row = ibx * BLOCK - 2 * MARGIN;
 						idx_col = iby * BLOCK - 2 * MARGIN;
 						int loglike_block_width = BLOCK_LOGLIKE;					
-						// #pragma omp parallel reduction (+:p_loglike) 
-						// Note: Do not use omp parallel reduction for such a tight loop
+
 						__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];
 						#pragma omp simd
 						for (k=0; k<AVX_CACHE; k++){
@@ -367,7 +364,7 @@ int main(int argc, char *argv[])
 
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
 						// If bigger then undo the addition by subtracting what was added to the model image.						
-						if (p_loglike > b_loglike){
+						if (flip_coin()){
 							// Begin subtraction
 							for (k=0; k<jstar; k++){
 								// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
@@ -376,7 +373,7 @@ int main(int argc, char *argv[])
 								idx_col = iby * BLOCK + MARGIN + p_Y[k];
 								#pragma omp simd
 								for (l=0; l<NPIX2; l++){
-									MODEL[(idx_row+l/psf_width)*IMAGE_WIDTH + (idx_col+l%NPIX)] -=  PSF[k * NPIX2 + l];
+									MODEL[(idx_row+l/NPIX)*IMAGE_WIDTH + (idx_col+l%NPIX)] -=  PSF[k * NPIX2 + l];
 								}
 							}
 						}
