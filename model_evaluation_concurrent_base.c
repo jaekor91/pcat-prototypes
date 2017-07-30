@@ -133,12 +133,8 @@ int main(int argc, char *argv[])
 
 	// ----- Declare global, shared variables ----- //
 	// Number of stars to perturb/add.
-	// int size_of_nstar = 8;
-	// int nstar[8] = {0, 1, 2, 3, 4, 8, 16, MAX_STARS};
-	// TRY MAX
-	int size_of_nstar = 1;
-	int nstar[1] = {MAX_STARS};	
-
+	int size_of_nstar = 8;
+	int nstar[8] = {0, 1, 2, 3, 4, 8, 16, MAX_STARS};
 
 	// * Pre-allocate image DATA, MODEL, design matrix, num_stars, and loglike
 	int size_of_DATA = IMAGE_SIZE;
@@ -166,14 +162,6 @@ int main(int argc, char *argv[])
 
 
 	// ----- Pre-allocate memory for within-loop shared variables ----- //
-	// * Pre-allocate space for X, Y, dX, parity_X, parity_Y.
-	int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * MAX_STARS; // 
-	int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * MAX_STARS * INNER; // Each block gets MAX_STARS * AVX_CACHE. Note, however, only the first 10 elements matter.
-	__attribute__((aligned(64))) int X[size_of_XYF]; // Assume 4 bytes integer
-	__attribute__((aligned(64))) int Y[size_of_XYF];
-	// __attribute__((aligned(64))) float F[size_of_XYF]; // The flux variable is not used 
-	__attribute__((aligned(64))) float dX[size_of_dX];
-
 	// ----- Pre-draw parity variables ----- //
 	int parity_X[NITER];
 	int parity_Y[NITER];
@@ -197,6 +185,14 @@ int main(int argc, char *argv[])
 			par_X = parity_X[j];
 			par_Y = parity_Y[j];
 			// printf("Parity: (%d, %d)\n", par_X, par_Y);
+
+			// * Pre-allocate space for X, Y, dX, parity_X, parity_Y.
+			int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns; // 
+			int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns * INNER; // Each block gets ns * INNER. Note, however, only the first 10 elements matter.
+			__attribute__((aligned(64))) int X[size_of_XYF]; // Assume 4 bytes integer
+			__attribute__((aligned(64))) int Y[size_of_XYF];
+			// __attribute__((aligned(64))) float F[size_of_XYF]; // The flux variable is not used 
+			__attribute__((aligned(64))) float dX[size_of_dX];			
 
 			// Randomly generate X, Y, dX, dY
 			init_mat_float(dX, size_of_dX, 0.0, 1); 
@@ -235,8 +231,8 @@ int main(int argc, char *argv[])
 						__attribute__((aligned(64))) float PSF[ns * NPIX2];						
 
 						// Start index for X, Y, F and dX, dY
-						int idx_XYF = block_ID * MAX_STARS;
-						int idx_dX = block_ID * MAX_STARS * INNER;						
+						int idx_XYF = block_ID * ns;
+						int idx_dX = block_ID * ns * INNER;						
 						#pragma omp simd
 						for (k=0; k<ns; k++){ // You only need ns
 							p_X[k] = X[idx_XYF+k];
