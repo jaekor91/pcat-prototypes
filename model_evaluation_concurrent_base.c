@@ -2,28 +2,6 @@
 // General strategy: Use each thread to update a small block (48 x 48 or 32 x 32). One thread can work on 
 // one region at a time. (However, we may experiment with a thread spawning addition threads
 // of its own in the future.)
-// 
-
-// - Loops:
-//		1) For num_stars {1, 2, 3, 4, 5, 10, 50, 100, 500, 1000, 5000}
-//			2) For each iteration of loop. Randomly generate.
-//				* X, Y [NUM_BLOCKS_PER_DIM^2, num_stars]: The (x,y) position of stars. Defined within each block. 
-// 					The upper-left corner has (0,0) coordintate.
-//				* dX, dY [NUM_BLOCKS_PER_DIM^2 x num_stars, INNER]: Floats [0, 1].
-//				* f: Floats [0, 256].
-//				* parity_x, parity_y: 0 or 1. Determine which sub-blocks to work on.
-// 				// For later: * PSFs [num_stars * NUM_BLOCKS_PER_DIM^2, (2 x AVX_CACHE)^2]: Storage for the PSFs 
-// 				* start: Begin timing
-//				3) For each block chosen by the xy-parities (let each thread work on)
-// 					* Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX. 
-// 					Insert without intermitten storage. Make sure to multiply by the new flux. 
-// 					(Note that killing a star is like giving a negative flux.)
-// 					* Compute the new likelihood based on the updated model. Based on 48 x 48 region, region larger than the block.
-// 					* Compare to the old likelihood and if the difference is negative then update the loglike and continue.
-// 					If positive then undo the addition by subtracting what was added to the model image.
-//				* end: End timing.
-// 				* Compute dt and add to dT
-//			Report the speed in terms of wall time.
 
 
 #include <stdio.h>
@@ -48,15 +26,15 @@
 #define MARGIN 4 // Margin width of the block
 #define REGION 8 // Core proposal region
 #define BLOCK (REGION + (2 * MARGIN))
-#define NUM_BLOCKS_PER_DIM 32	// Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 2	// Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 100 // Number of burn-in to perform
-#define NITER (100+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 1000 // Number of burn-in to perform
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
-#define MAX_STARS 16 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + (2 * MARGIN)+ REGION) // BLOCK_LOGLIKE is twice larger in size in each dimension.
@@ -155,11 +133,11 @@ int main(int argc, char *argv[])
 
 	// ----- Declare global, shared variables ----- //
 	// Number of stars to perturb/add.
-	int size_of_nstar = 8;
-	int nstar[8] = {0, 1, 2, 3, 4, 8, 16, MAX_STARS};
+	// int size_of_nstar = 8;
+	// int nstar[8] = {0, 1, 2, 3, 4, 8, 16, MAX_STARS};
 	// TRY MAX
-	// int size_of_nstar = 1;
-	// int nstar[1] = {MAX_STARS};	
+	int size_of_nstar = 1;
+	int nstar[1] = {MAX_STARS};	
 
 
 	// * Pre-allocate image DATA, MODEL, design matrix, num_stars, and loglike
