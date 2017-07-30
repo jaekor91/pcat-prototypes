@@ -58,8 +58,8 @@
 
 #define INNER 10
 #define AVX_CACHE 16 // Number of floats that can fit into AVX512
-#define NPIX 24
-#define NPIX2 (NPIX*NPIX) // 24 x 24 = 576
+#define NPIX 25
+#define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
 #define BLOCK 2 * AVX_CACHE 
 #define MARGIN 8
 #define REGION 16
@@ -264,6 +264,13 @@ int main(int argc, char *argv[])
 								p_dX[AVX_CACHE*k+m] = dX[idx_dX+k*AVX_CACHE+m];
 							}
 						}
+
+						// This actually seems to slow down the program.
+						// __attribute__((aligned(64))) float p_A[size_of_A]; // Private copy of A. 
+						// #pragma omp simd
+						// for (k=0; k<size_of_A; k++){
+						//      p_A[k] = A[k];
+						// }
 
 
 						// row and col location of the star based on X, Y values.
