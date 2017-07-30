@@ -63,11 +63,11 @@
 #define BLOCK 2 * AVX_CACHE 
 #define MARGIN 8
 #define REGION 16
-#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 8 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 1000
-#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 500
+#define NITER (100+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
 #define BYTES 4
 #define MAX_STARS AVX_CACHE * 10
@@ -187,7 +187,7 @@ int main(int argc, char *argv[])
 	// ----- Pre-allocate memory for within-loop shared variables ----- //
 	// * Pre-allocate space for X, Y, dX, dY, F, parity_X, parity_Y.
 	int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * MAX_STARS; // Max number of stars is 16. Each block gets 16 floating point.
-	int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * MAX_STARS * AVX_CACHE; // Each block gets MAX_STARS * AVX_CACHE. Note, however, only the first 10 elements matter.
+	int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * MAX_STARS * INNER; // Each block gets MAX_STARS * AVX_CACHE. Note, however, only the first 10 elements matter.
 	__attribute__((aligned(64))) int X[size_of_XYF]; // Assume 4 bytes integer
 	__attribute__((aligned(64))) int Y[size_of_XYF];
 	__attribute__((aligned(64))) float F[size_of_XYF]; // The flux variable is not used 
@@ -242,7 +242,7 @@ int main(int argc, char *argv[])
 
 						// Read into cache
 						// Manual pre-fetching might be bad...
-						__attribute__((aligned(64)))  float p_dX[AVX_CACHE * ns];
+						__attribute__((aligned(64)))  float p_dX[INNER * ns];
 						__attribute__((aligned(64)))  int p_X[ns]; // Really you only need ns
 						__attribute__((aligned(64))) int p_Y[ns];						
 						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
@@ -252,7 +252,7 @@ int main(int argc, char *argv[])
 
 						// Start index for X, Y, F and dX, dY
 						int idx_XYF = block_ID * MAX_STARS;
-						int idx_dX = block_ID * MAX_STARS * AVX_CACHE;						
+						int idx_dX = block_ID * MAX_STARS * INNER;						
 						#pragma omp simd
 						for (k=0; k<ns; k++){ // You only need ns
 							p_X[k] = X[idx_XYF+k];
@@ -260,8 +260,8 @@ int main(int argc, char *argv[])
 						}
 						#pragma omp simd 
 						for (k=0; k<ns; k++){
-							for (m=0; m<AVX_CACHE; m++){
-								p_dX[AVX_CACHE*k+m] = dX[idx_dX+k*AVX_CACHE+m];
+							for (m=0; m<INNER; m++){
+								p_dX[INNER*k+m] = dX[idx_dX+k*INNER+m];
 							}
 						}
 
@@ -292,12 +292,12 @@ int main(int argc, char *argv[])
 					        int idx = yy*REGION+xx;
 					        if (hash[idx] != -1) {
 					        	#pragma omp simd
-					            for (l=0; l<INNER; l++) { p_dX[hash[idx]*AVX_CACHE+l] += p_dX[istar*AVX_CACHE+l]; }
+					            for (l=0; l<INNER; l++) { p_dX[hash[idx]*INNER+l] += p_dX[istar*INNER+l]; }
 					        }
 					        else {
 					            hash[idx] = jstar;
 					            #pragma omp simd
-					            for (l=0; l<INNER; l++) { p_dX[hash[idx]*AVX_CACHE+l] = p_dX[istar*AVX_CACHE+l]; }
+					            for (l=0; l<INNER; l++) { p_dX[hash[idx]*INNER+l] = p_dX[istar*INNER+l]; }
 					            p_X[jstar] = p_X[istar];
 					            p_Y[jstar] = p_Y[istar];
 					            jstar++;
@@ -314,7 +314,7 @@ int main(int argc, char *argv[])
 								PSF[k * NPIX2 + l] = 0; // Wipe clean PSF array. 
 								#pragma omp simd
 								for (m=0; m<INNER; m++){
-									PSF[k * NPIX2 + l] += p_dX[k*AVX_CACHE+m] * A[m*NPIX2+l];
+									PSF[k * NPIX2 + l] += p_dX[k*INNER+m] * A[m*NPIX2+l];
 								} 
 							}// End of PSF calculation for K-th star
 						}
