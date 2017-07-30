@@ -48,12 +48,12 @@
 #define MARGIN 4 // Margin width of the block
 #define REGION 8 // Core proposal region
 #define BLOCK (REGION + (2 * MARGIN))
-#define NUM_BLOCKS_PER_DIM 32	// Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 2	// Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 100 // Number of burn-in to perform
-#define NITER (100+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 10000 // Number of burn-in to perform
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 16 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -82,6 +82,17 @@ void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
 	}
 
 	return;
+}
+
+int generate_offset(int min, int max)
+{
+	// Return a random number [min, max)
+	int i;
+	int diff = max-min;
+	if (max>0){
+		i = (rand() % diff) + min;
+	}
+	return i;	
 }
 
 
@@ -223,10 +234,10 @@ int main(int argc, char *argv[])
 			{
 				// Recall that we only consider the center blocks. That's where the extra 1 come from
 				#pragma omp for collapse(2)
-				for (iby=1+par_Y; iby<NUM_BLOCKS_PER_DIM_W_PAD-1; iby+=2){ // Column direction				
-					for (ibx=1+par_X; ibx<NUM_BLOCKS_PER_DIM_W_PAD-1; ibx+=2){ // Row direction
+				for (iby=1+par_Y; iby< (NUM_BLOCKS_PER_DIM_W_PAD-1); iby+=2){ // Column direction				
+					for (ibx=1+par_X; ibx< (NUM_BLOCKS_PER_DIM_W_PAD-1); ibx+=2){ // Row direction
 						int k, l, m; // private loop variables
-						int block_ID = ibx * NUM_BLOCKS_PER_DIM_W_PAD + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
+						int block_ID = (ibx * NUM_BLOCKS_PER_DIM_W_PAD) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 						// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
 
 						// Read into cache
@@ -307,13 +318,12 @@ int main(int argc, char *argv[])
 						}
 						// Begin Insert
 						for (k=0; k<jstar; k++){
-							// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
 							// Add PSF into the model
 							idx_row = ibx * BLOCK + MARGIN + p_X[k];
 							idx_col = iby * BLOCK + MARGIN + p_Y[k];
 							#pragma omp simd
 							for (l=0; l<NPIX2; l++){
-								MODEL[(idx_row+l/NPIX)*IMAGE_WIDTH + (idx_col+l%NPIX)] +=  PSF[k * NPIX2 + l];
+								MODEL[(idx_row+(l/NPIX))*IMAGE_WIDTH + (idx_col+(l%NPIX))] +=  PSF[k * NPIX2 + l];
 							}// End of insert of k-th star PSF.
 						}// End of model update
 
@@ -324,8 +334,8 @@ int main(int argc, char *argv[])
 						float p_loglike = 0; // Proposed move's loglikehood
 
 						//simd reduction
-						idx_row = ibx * BLOCK - 2 * MARGIN;
-						idx_col = iby * BLOCK - 2 * MARGIN;
+						idx_row = ibx * BLOCK - 2 * MARGIN - (REGION/2);
+						idx_col = iby * BLOCK - 2 * MARGIN - (REGION/2);
 
 						__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];
 						#pragma omp simd
@@ -354,7 +364,6 @@ int main(int argc, char *argv[])
 						if (flip_coin()){
 							// Begin subtraction
 							for (k=0; k<jstar; k++){
-								// Compute in 16 chunks. Won't work if NPIX2 is not divisible by 16.
 								// Add PSF into the model
 								idx_row = ibx * BLOCK + MARGIN + p_X[k];
 								idx_col = iby * BLOCK + MARGIN + p_Y[k];
