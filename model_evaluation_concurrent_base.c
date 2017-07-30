@@ -47,16 +47,16 @@
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
 #define MARGIN 4 // Margin width of the block
 #define REGION 8 // Core proposal region
-#define BLOCK REGION + 2 * MARGIN
-#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define BLOCK (REGION + (2 * MARGIN))
+#define NUM_BLOCKS_PER_DIM 32	// Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 10000 // Number of burn-in to perform
-#define NITER (10000+NITER_BURNIN) // Number of iterations
-#define LARGE_LOGLIKE 1000 // Large loglike value filler.
+#define NITER_BURNIN 100 // Number of burn-in to perform
+#define NITER (100+NITER_BURNIN) // Number of iterations
+#define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
-#define MAX_STARS 32 // Maximum number of stars to try putting in.
+#define MAX_STARS 16 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + 2 * MARGIN + REGION/2)
@@ -143,22 +143,26 @@ int main(int argc, char *argv[])
 	srand(123); 
 
 	// ----- Declare global, shared variables ----- //
-	// Number of stars
+	// Number of stars to perturb/add.
 	int size_of_nstar = 7;
-	int nstar[7] = {1, 2, 3, 4, 8, 16, MAX_STARS};
+	int nstar[7] = {0, 1, 2, 3, 4, 8, 16};
+	// Try max case
+	// int size_of_nstar = 1;
+	// int nstar[1] = {MAX_STARS};	
 
 
 	// * Pre-allocate image DATA, MODEL, design matrix, num_stars, and loglike
 	int size_of_DATA = IMAGE_SIZE;
 	int size_of_A = NPIX2 * INNER;
-	int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD; // Padding to avoid cache coherence issue.
-	__attribute__((aligned(64))) float DATA[size_of_DATA];
-	__attribute__((aligned(64))) float MODEL[size_of_DATA];
+	int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD; // Padding so as to not worry about margin. Only working on the inner region.
+	__attribute__((aligned(64))) float DATA[size_of_DATA]; // Generate positive test data. 64 bytes aligned.
+	__attribute__((aligned(64))) float MODEL[size_of_DATA]; // Allocate model image. 64 bytes aligned.
 	__attribute__((aligned(64))) float WEIGHT[size_of_DATA]; // Inverse variance map
-	__attribute__((aligned(64))) float A[size_of_A];
-	__attribute__((aligned(64))) float LOGLIKE[size_of_LOGLIKE]; 
+	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix
+	__attribute__((aligned(64))) float LOGLIKE[size_of_LOGLIKE]; // loglike without padding. Turns out this is better.
 	// printf("Image size: %d\n", size_of_DATA);
 	printf("Image width: %d\n", IMAGE_WIDTH);
+	printf("Block width: %d\n", BLOCK); 	
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM / 4);
 
@@ -171,12 +175,12 @@ int main(int argc, char *argv[])
 
 
 	// ----- Pre-allocate memory for within-loop shared variables ----- //
-	// * Pre-allocate space for X, Y, dX, dY, F, parity_X, parity_Y.
-	int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * MAX_STARS; // Max number of stars is 16. Each block gets 16 floating point.
+	// * Pre-allocate space for X, Y, dX, parity_X, parity_Y.
+	int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * MAX_STARS; // 
 	int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * MAX_STARS * INNER; // Each block gets MAX_STARS * AVX_CACHE. Note, however, only the first 10 elements matter.
 	__attribute__((aligned(64))) int X[size_of_XYF]; // Assume 4 bytes integer
 	__attribute__((aligned(64))) int Y[size_of_XYF];
-	__attribute__((aligned(64))) float F[size_of_XYF]; // The flux variable is not used 
+	// __attribute__((aligned(64))) float F[size_of_XYF]; // The flux variable is not used 
 	__attribute__((aligned(64))) float dX[size_of_dX];
 
 	// ----- Pre-draw parity variables ----- //
@@ -190,23 +194,22 @@ int main(int argc, char *argv[])
 	int i, j; // Loop variables
 	int ibx, iby; // Block idx
 	int ns; // Number of stars
-	int par_X, par_Y;
+	int par_X, par_Y; // current parrity
 	double start, end, dt, dt_per_iter;
 	// For each number of stars.
 	for (i=0; i<size_of_nstar; i++){
-		ns = nstar[i];
-		dt = 0;
+		ns = nstar[i]; // current star number
+		dt = 0; // Time accumulator
 		// Start of the loop
 		for (j=0; j<NITER; j++){
 			// Pick parity
 			par_X = parity_X[j];
 			par_Y = parity_Y[j];
-			// par_Y = 0;
 			// printf("Parity: (%d, %d)\n", par_X, par_Y);
 
-			// Randomly generate X, Y, dX, dY, F
+			// Randomly generate X, Y, dX, dY
 			init_mat_float(dX, size_of_dX, 0.0, 1); 
-			init_mat_float(F, size_of_XYF, 0.0, 1); 
+			// init_mat_float(F, size_of_XYF, 0.0, 1); 
 			init_mat_int(X, size_of_XYF, 0, HASHING); 
 			init_mat_int(Y, size_of_XYF, 0, HASHING);			
 
@@ -316,8 +319,7 @@ int main(int argc, char *argv[])
 
 
 						// ----- Compute the new likelihood based on the updated model. ----- //
-						// Based on 48 x 48 region, region larger than the block.
-						// Read into cache necessary values. (Need to verify)
+						// Sum regions in BLOCK_LOGLIKE
 						float b_loglike = LOGLIKE[block_ID];// Loglikelihood corresponding to the block.
 						float p_loglike = 0; // Proposed move's loglikehood
 
