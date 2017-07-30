@@ -63,11 +63,11 @@
 #define BLOCK 2 * AVX_CACHE 
 #define MARGIN 8
 #define REGION 16
-#define NUM_BLOCKS_PER_DIM 8 // Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
 #define NITER_BURNIN 1000
-#define NITER (100+NITER_BURNIN) // Number of iterations
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
 #define BYTES 4
 #define MAX_STARS AVX_CACHE * 10
@@ -254,7 +254,7 @@ int main(int argc, char *argv[])
 						int idx_XYF = block_ID * MAX_STARS;
 						int idx_dX = block_ID * MAX_STARS * AVX_CACHE;						
 						#pragma omp simd
-						for (k=0; k<MAX_STARS; k++){ // You only need ns
+						for (k=0; k<ns; k++){ // You only need ns
 							p_X[k] = X[idx_XYF+k];
 							p_Y[k] = Y[idx_XYF+k];
 						}
