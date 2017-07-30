@@ -1,27 +1,9 @@
 // Model evaluation and update prototype
-// General strategy: Use each thread to update a block of 32 x 32. One thread can work on 
+// General strategy: Use each thread to update a small block (48 x 48 or 32 x 32). One thread can work on 
 // one region at a time. (However, we may experiment with a thread spawning addition threads
-// of its own.)
+// of its own in the future.)
 // 
-// Program outline:
-// - Define global dimensions: 
-// 		* AVX_CACHE = 16: Number of single floats that fit in the cacheline
-//		* NPIX: Number of pixels in each dimension of the PSF.
-//		* NPIX2 = NPIX^2 
-//		* INNER = 10: Inner dimension of the matrix multplication.
-//		* BLOCK = 32: Chosen to be 2 times AVX_CACHE. 
-// 		* MARGIN = 8: Margin
-// 		* REGION_WIDTH = 16: Redudant but used for clarity.
-//		* NUM_BLOCKS_PER_DIM: Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
-// 		Note: NPIX and NPIX2 may not be used since the design matrix will be chosen such that
-//		it adds zero pixel value but cache line optimized. This choice may not matter but I 
-// 		put it in for now.
-// - Define global, shared variables:
-//		* Image DATA [NUM_BLOCKS_PER_DIM x BLOCK, NUM_BLOCKS_PER_DIM x BLOCK]: Generate positive test data. 64 bytes aligned.
-//		* Image MODEL [NUM_BLOCKS_PER_DIM x BLOCK, NUM_BLOCKS_PER_DIM x BLOCK]: Allocate model image. 64 bytes aligned.
-//		* Design matrix A [INNER, (2 x AVX_CACHE)^2]
-//		* num_stars: Number of stars for each region.
-// 		* loglike: [NUM_BLOCKS_PER_DIM^2, PAD]: Stores loglikehood for each block.
+
 // - Loops:
 //		1) For num_stars {1, 2, 3, 4, 5, 10, 50, 100, 500, 1000, 5000}
 //			2) For each iteration of loop. Randomly generate.
@@ -56,21 +38,25 @@
 
 
 
-#define INNER 10
+
+
+// Define global dimensions
+#define INNER 10 // Inner dimension of the matrix multplication.
 #define AVX_CACHE 16 // Number of floats that can fit into AVX512
-#define NPIX 25
+#define NPIX 25 // PSF single dimension
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
-#define MARGIN 4
-#define REGION 8
+#define MARGIN 4 // Margin width of the block
+#define REGION 8 // Core proposal region
 #define BLOCK REGION + 2 * MARGIN
 #define NUM_BLOCKS_PER_DIM 2 // Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
+								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 1000
-#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 10000 // Number of burn-in to perform
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 1000 // Large loglike value filler.
-#define BYTES 4
-#define MAX_STARS 160
+#define BYTES 4 // Number of byte for int and float.
+#define MAX_STARS 32 // Maximum number of stars to try putting in.
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + 2 * MARGIN + REGION/2)
@@ -242,8 +228,8 @@ int main(int argc, char *argv[])
 
 						// Read into cache
 						// Manual pre-fetching might be bad...
-						__attribute__((aligned(64)))  float p_dX[INNER * ns];
-						__attribute__((aligned(64)))  int p_X[ns]; // Really you only need ns
+						__attribute__((aligned(64))) float p_dX[INNER * ns];
+						__attribute__((aligned(64))) int p_X[ns]; // Really you only need ns
 						__attribute__((aligned(64))) int p_Y[ns];						
 						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
 
@@ -390,6 +376,7 @@ int main(int argc, char *argv[])
 				dt += (end-start);
 			}
 		} // End of NITER loop
+
 
 	// Calculatin the time took.
 	dt_per_iter = (dt / (NITER-NITER_BURNIN)) * (1e06); // Burn-in	
