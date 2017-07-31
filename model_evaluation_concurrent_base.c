@@ -31,8 +31,8 @@
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 5000 // Number of burn-in to perform
-#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 10000 // Number of burn-in to perform
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -117,6 +117,20 @@ int flip_coin(){
 	return coin;
 }
 
+int flip_coin_biased(float up_fraction){
+	// Generate 0 or 1 randomly.
+	float decision_point = RAND_MAX * (1-up_fraction);
+	int coin;
+	int x = rand();
+	if (x>decision_point){
+		coin = 1;
+	}
+	else{
+		coin = 0;
+	}
+	return coin;
+}
+
 void print_mat_int(int* mat, int size){
 	int i;
 	for (i=0; i<size-1; i++){
@@ -155,6 +169,8 @@ int main(int argc, char *argv[])
 	printf("Loglike bock width: %d\n", BLOCK_LOGLIKE); 		
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM / 4);
+	int stack_size = kmp_get_stacksize_s() / 1e06;
+	printf("Stack size being used: %dMB\n", stack_size);
 
 	// ----- Initialize global, shared variables ----- //
 	init_mat_float(DATA, size_of_DATA, 0.0, 1); // Fill data with random values
@@ -248,8 +264,9 @@ int main(int argc, char *argv[])
 						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
 
 						// Intermediate add point						
-						__attribute__((aligned(64))) float model_diff[BLOCK_LOGLIKE*BLOCK_LOGLIKE]; 
-
+						__attribute__((aligned(64))) float model_diff[BLOCK_LOGLIKE*BLOCK_LOGLIKE];
+						// Proposed model
+						__attribute__((aligned(64))) float model_proposed[BLOCK_LOGLIKE*BLOCK_LOGLIKE];
 
 						// Storage for PSF // With the intermediate storage, there is no longer a need for PSF storage.
 						// __attribute__((aligned(64))) float PSF[ns * NPIX2];
@@ -282,15 +299,7 @@ int main(int argc, char *argv[])
 							}
 						}
 
-
-						// This actually seems to slow down the program.
-						// __attribute__((aligned(64))) float p_A[size_of_A]; // Private copy of A. 
-						// #pragma omp simd
-						// for (k=0; k<size_of_A; k++){
-						//      p_A[k] = A[k];
-						// }
-
-
+						// ----- Compute proposed model ----- //
 						// Update the model by inserting ns stars into model diff and then adding to MODEL.
 						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
 
@@ -341,13 +350,13 @@ int main(int argc, char *argv[])
 							}// End of PSF calculation for K-th star
 						}
 
-						// Add to the model image
+						// Add to the model image and save to the model_proposed
 						idx_row = ibx * BLOCK - 2*MARGIN - (REGION/2);
 						idx_col = iby * BLOCK - 2*MARGIN - (REGION/2);
 						#pragma omp simd
 						for (l=0; l<BLOCK_LOGLIKE; l++){						
 							for (k=0; k<BLOCK_LOGLIKE; k++){
-								MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] += model_diff[l*BLOCK_LOGLIKE + k];
+								model_proposed[l*BLOCK_LOGLIKE + k] = MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] + model_diff[l*BLOCK_LOGLIKE + k];
 							}
 						}
 
@@ -368,16 +377,18 @@ int main(int argc, char *argv[])
 							loglike_temp[k] = 0;
 						}
 
-						int idx_start, idx;
+						int idx_start1, idx_start2, idx1, idx2;
 						#pragma omp simd
 						for (l=0; l < BLOCK_LOGLIKE; l++){ // 32
 							for (m=0; m < BLOCK_LOGLIKE/AVX_CACHE; m++){
-								idx_start = (idx_row+l)*IMAGE_WIDTH + (idx_col+m*AVX_CACHE);
+								idx_start1 = (idx_row+l)*IMAGE_WIDTH + (idx_col+m*AVX_CACHE);
+								idx_start2 = l*BLOCK_LOGLIKE+m*AVX_CACHE;
 								#pragma omp simd								
 								for (k=0; k<AVX_CACHE; k++){
-									idx = idx_start+k;
+									idx1 = idx_start1+k;
+									idx2 = idx_start2+k;
 									// Compiler knows how to break this expression down
-									loglike_temp[k] += WEIGHT[idx]*(MODEL[idx]-DATA[idx])*(MODEL[idx]-DATA[idx]);
+									loglike_temp[k] += WEIGHT[idx1]*(model_proposed[idx2]-DATA[idx1])*(model_proposed[idx2]-DATA[idx1]);
 								}
 							}
 						}
@@ -388,17 +399,25 @@ int main(int argc, char *argv[])
 
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
 						// If bigger then undo the addition by subtracting what was added to the model image.						
-						if (flip_coin()){ // Currently, use flip coin.
-							#pragma omp simd
-							for (l=0; l<BLOCK_LOGLIKE; l++){						
-								for (k=0; k<BLOCK_LOGLIKE; k++){
-									MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] -= model_diff[l*BLOCK_LOGLIKE + k];
-								}
-							}
+						if (flip_coin_biased(0.75)){ // Currently, use flip coin.
+							// #pragma omp simd
+							// for (l=0; l<BLOCK_LOGLIKE; l++){						
+							// 	for (k=0; k<BLOCK_LOGLIKE; k++){
+							// 		MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] -= model_diff[l*BLOCK_LOGLIKE + k];
+							// 	}
+							// }
 						}
 						else{
 							// Accept the proposal
-							LOGLIKE[block_ID] = p_loglike;// Loglikelihood corresponding to the block.							
+							LOGLIKE[block_ID] = p_loglike;// Loglikelihood corresponding to the block.
+							idx_row = ibx * BLOCK - 2*MARGIN - (REGION/2);
+							idx_col = iby * BLOCK - 2*MARGIN - (REGION/2);
+							#pragma omp simd
+							for (l=0; l<BLOCK_LOGLIKE; l++){						
+								for (k=0; k<BLOCK_LOGLIKE; k++){
+									 MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] = model_proposed[l*BLOCK_LOGLIKE + k];
+								}
+							}							
 						}
 					} // End of y block loop
 				} // End of x block loop
