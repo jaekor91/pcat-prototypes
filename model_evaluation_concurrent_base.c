@@ -31,8 +31,8 @@
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 10000 // Number of burn-in to perform
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 5000 // Number of burn-in to perform
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -347,7 +347,7 @@ int main(int argc, char *argv[])
 						#pragma omp simd
 						for (l=0; l<BLOCK_LOGLIKE; l++){						
 							for (k=0; k<BLOCK_LOGLIKE; k++){
-								MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] += model_diff[l*BLOCK_LOGLIKE + (idx_col+k)];
+								MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] += model_diff[l*BLOCK_LOGLIKE + k];
 							}
 						}
 
@@ -357,8 +357,6 @@ int main(int argc, char *argv[])
 						// float b_loglike = LOGLIKE[block_ID];// Loglikelihood corresponding to the block.
 						// AVX_CACHE_VERSION
 						float b_loglike = LOGLIKE[block_ID * AVX_CACHE];// Loglikelihood corresponding to the block.
-
-
 						float p_loglike = 0; // Proposed move's loglikehood
 
 						//simd reduction
@@ -370,7 +368,6 @@ int main(int argc, char *argv[])
 							loglike_temp[k] = 0;
 						}
 
-						// 
 						int idx_start, idx;
 						#pragma omp simd
 						for (l=0; l < BLOCK_LOGLIKE; l++){ // 32
@@ -379,6 +376,7 @@ int main(int argc, char *argv[])
 								#pragma omp simd								
 								for (k=0; k<AVX_CACHE; k++){
 									idx = idx_start+k;
+									// Compiler knows how to break this expression down
 									loglike_temp[k] += WEIGHT[idx]*(MODEL[idx]-DATA[idx])*(MODEL[idx]-DATA[idx]);
 								}
 							}
@@ -394,7 +392,7 @@ int main(int argc, char *argv[])
 							#pragma omp simd
 							for (l=0; l<BLOCK_LOGLIKE; l++){						
 								for (k=0; k<BLOCK_LOGLIKE; k++){
-									MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] -= model_diff[l*BLOCK_LOGLIKE + (idx_col+k)];
+									MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] -= model_diff[l*BLOCK_LOGLIKE + k];
 								}
 							}
 						}
