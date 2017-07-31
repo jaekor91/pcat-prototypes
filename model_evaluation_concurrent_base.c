@@ -30,8 +30,8 @@
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 100 // Number of burn-in to perform
-#define NITER (100+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 1000 // Number of burn-in to perform
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -244,11 +244,14 @@ int main(int argc, char *argv[])
 						__attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
 						__attribute__((aligned(64))) int p_X[ns_AVX_CACHE]; // Really you only need ns
 						__attribute__((aligned(64))) int p_Y[ns_AVX_CACHE];						
-						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable						
+						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
+
+						// Intermediate add point						
+						__attribute__((aligned(64))) float model_diff[BLOCK_LOGLIKE*BLOCK_LOGLIKE]; 
 
 
-						// Storage for PSF
-						__attribute__((aligned(64))) float PSF[ns * NPIX2];
+						// Storage for PSF // With the intermediate storage, there is no longer a need for PSF storage.
+						// __attribute__((aligned(64))) float PSF[ns * NPIX2];
 						// AVX_CACHE_VERSION: Since PSF is called from cache ignore this.
 
 
@@ -280,11 +283,7 @@ int main(int argc, char *argv[])
 						// }
 
 
-						// row and col location of the star based on X, Y values.
-						int idx_row; 
-						int idx_col;
-						// int psf_width = NPIX; // Not sure why simply using NPIX rather than a variable.
-						// Update the model by inserting ns stars
+						// Update the model by inserting ns stars into model diff and then adding to MODEL.
 						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
 
 						// Hashing. This steps reduces number of PSFs that need to be evaluated.
@@ -311,30 +310,37 @@ int main(int argc, char *argv[])
 					        }
 					    }
 
-						// Calculate PSF, store, and then insert
+						// row and col location of the star based on X, Y values.
+						int idx_row; 
+						int idx_col;					    
+
+						// Calculate PSF and then add to model_diff
 						for (k=0; k<jstar; k++){
+							idx_row = (2*MARGIN) + (REGION/2) + p_X[k];
+							idx_col = (2*MARGIN) + (REGION/2) + p_Y[k];							
 							// Compute PSF and store
 							#pragma omp simd
 							for (l=0; l<NPIX2; l++){
-								PSF[k * NPIX2 + l] = 0; // Wipe clean PSF array. 
 								#pragma omp simd
 								for (m=0; m<INNER; m++){
-									PSF[k * NPIX2 + l] += p_dX[k*INNER+m] * A[m*NPIX2+l];
+									model_diff[(idx_row+(l/NPIX))*BLOCK + (idx_col+(l%NPIX))] += p_dX[k*INNER+m] * A[m*NPIX2+l];
 								} 
 							}// End of PSF calculation for K-th star
 						}
 
-
-						// Begin Insert
-						for (k=0; k<jstar; k++){
-							// Add PSF into the model
-							idx_row = ibx * BLOCK + MARGIN + p_X[k];
-							idx_col = iby * BLOCK + MARGIN + p_Y[k];
-							#pragma omp simd
-							for (l=0; l<NPIX2; l++){
-								MODEL[(idx_row+(l/NPIX))*IMAGE_WIDTH + (idx_col+(l%NPIX))] +=  PSF[k * NPIX2 + l];
-							}// End of insert of k-th star PSF.
-						}// End of model update
+						#pragma omp simd
+						for (l=0; l<BLOCK_LOGLIKE * BLOCK_LOGLIKE; l++){
+							model_diff[l] = 0;
+						}
+						// Add to the model image
+						idx_row = ibx * BLOCK - 2*MARGIN - (REGION/2);
+						idx_col = iby * BLOCK - 2*MARGIN - (REGION/2);
+						#pragma omp simd
+						for (l=0; l<BLOCK_LOGLIKE; l++){						
+							for (k=0; k<BLOCK_LOGLIKE; k++){
+								MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] += model_diff[(idx_row+l)*BLOCK_LOGLIKE + (idx_col+k)];
+							}
+						}
 
 
 						// ----- Compute the new likelihood based on the updated model. ----- //
@@ -356,18 +362,20 @@ int main(int argc, char *argv[])
 							loglike_temp[k] = 0;
 						}
 
+						// 
 						int idx_start, idx;
 						#pragma omp simd
 						for (l=0; l < BLOCK_LOGLIKE; l++){ // 32
 							for (m=0; m < BLOCK_LOGLIKE/AVX_CACHE; m++){
-								idx_start = (idx_row+l)*IMAGE_WIDTH + (idx_col+m*AVX_CACHE);							
-							}
-							for (k=0; k<AVX_CACHE; k++){
-								idx = idx_start+k;
-								loglike_temp[k] += WEIGHT[idx]*(MODEL[idx]-DATA[idx])*(MODEL[idx]-DATA[idx]);
+								idx_start = (idx_row+l)*IMAGE_WIDTH + (idx_col+m*AVX_CACHE);
+								#pragma omp simd								
+								for (k=0; k<AVX_CACHE; k++){
+									idx = idx_start+k;
+									loglike_temp[k] += WEIGHT[idx]*(MODEL[idx]-DATA[idx])*(MODEL[idx]-DATA[idx]);
+								}
 							}
 						}
-
+						// Sum AVX_CACHE number
 						for (k=0; k<AVX_CACHE; k++){
 							p_loglike += loglike_temp[k];
 						}
@@ -375,14 +383,10 @@ int main(int argc, char *argv[])
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
 						// If bigger then undo the addition by subtracting what was added to the model image.						
 						if (flip_coin()){ // Currently, use flip coin.
-							// Begin subtraction
-							for (k=0; k<jstar; k++){
-								// Add PSF into the model
-								idx_row = ibx * BLOCK + MARGIN + p_X[k];
-								idx_col = iby * BLOCK + MARGIN + p_Y[k];
-								#pragma omp simd
-								for (l=0; l<NPIX2; l++){
-									MODEL[(idx_row+l/NPIX)*IMAGE_WIDTH + (idx_col+l%NPIX)] -=  PSF[k * NPIX2 + l];
+							#pragma omp simd
+							for (l=0; l<BLOCK_LOGLIKE; l++){						
+								for (k=0; k<BLOCK_LOGLIKE; k++){
+									MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] -= model_diff[(idx_row+l)*BLOCK_LOGLIKE + (idx_col+k)];
 								}
 							}
 						}
