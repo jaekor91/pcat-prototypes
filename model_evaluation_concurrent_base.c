@@ -27,12 +27,12 @@
 #define MARGIN 4 // Margin width of the block
 #define REGION 8 // Core proposal region
 #define BLOCK (REGION + (2 * MARGIN))
-#define NUM_BLOCKS_PER_DIM 2	// Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_BLOCKS_PER_DIM 4	// Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 10000 // Number of burn-in to perform
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 5000 // Number of burn-in to perform
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -148,8 +148,8 @@ int main(int argc, char *argv[])
 
 	// ----- Declare global, shared variables ----- //
 	// Number of stars to perturb/add.
-	int size_of_nstar = 9;
-	int nstar[9] = {0, 1, 2, 3, 4, 8, 16, 160, MAX_STARS};
+	int size_of_nstar = 11;
+	int nstar[11] = {0, 1, 2, 3, 4, 8, 16, 32, 40, 160, MAX_STARS};
 
 	// * Pre-allocate image DATA, MODEL, design matrix, num_stars, and loglike
 	int size_of_DATA = IMAGE_SIZE;
