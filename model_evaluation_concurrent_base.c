@@ -27,6 +27,7 @@
 #define MARGIN 4 // Margin width of the block
 #define REGION 8 // Core proposal region
 #define BLOCK (REGION + (2 * MARGIN))
+#define BLOCK_LOGLIKE (BLOCK + (2 * MARGIN)+ REGION) // BLOCK_LOGLIKE is twice larger in size in each dimension.
 #define NUM_BLOCKS_PER_DIM 16	// Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
@@ -38,7 +39,6 @@
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
-#define BLOCK_LOGLIKE (BLOCK + (2 * MARGIN)+ REGION) // BLOCK_LOGLIKE is twice larger in size in each dimension.
 #define HASHING REGION // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
