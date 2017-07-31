@@ -22,6 +22,7 @@
 #define INNER 10 // Inner dimension of the matrix multplication.
 #define AVX_CACHE 16 // Number of floats that can fit into AVX512
 #define NPIX 25 // PSF single dimension
+#define NPIX_div2 12
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
 #define MARGIN 4 // Margin width of the block
 #define REGION 8 // Core proposal region
@@ -30,8 +31,8 @@
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 1000 // Number of burn-in to perform
-#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 10000 // Number of burn-in to perform
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -192,7 +193,7 @@ int main(int argc, char *argv[])
 			// int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns; // 
 			// int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns * INNER; // Each block gets ns * INNER. Note, however, only the first 10 elements matter.
 			// AVX_CACHE_VERSION
-			int ns_AVX_CACHE;			
+			int ns_AVX_CACHE; 		
 			if ((ns % AVX_CACHE) == 0){
 				ns_AVX_CACHE = ns;
 			}
@@ -267,10 +268,17 @@ int main(int argc, char *argv[])
 							p_X[k] = X[idx_XYF+k];
 							p_Y[k] = Y[idx_XYF+k];
 						}
+						// #pragma omp simd 
+						// for (k=0; k<ns; k++){
+						// 	for (m=0; m<INNER; m++){
+						// 		p_dX[INNER*k+m] = dX[idx_dX+k*INNER+m];
+						// 	}
+						// }
+						// AVX_CACHE_VERSION
 						#pragma omp simd 
 						for (k=0; k<ns; k++){
 							for (m=0; m<INNER; m++){
-								p_dX[INNER*k+m] = dX[idx_dX+k*INNER+m];
+								p_dX[AVX_CACHE*k+m] = dX[idx_dX+k*AVX_CACHE+m];
 							}
 						}
 
@@ -287,22 +295,23 @@ int main(int argc, char *argv[])
 						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
 
 						// Hashing. This steps reduces number of PSFs that need to be evaluated.
+						#pragma omp simd // Explicit vectorization
 					    for (k=0; k<REGION*REGION; k++) { hash[k] = -1; }
 					    int jstar = 0; // Number of stars after coalescing.
 						int istar;
 						int xx, yy;
-					    for (istar = 0; istar < ns; istar++)
+					    for (istar = 0; istar < ns; istar++) // This must be a serial operation.
 					    {
 					        xx = p_X[istar];
 					        yy = p_Y[istar];
 					        int idx = yy*REGION+xx;
 					        if (hash[idx] != -1) {
-					        	#pragma omp simd
+					        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
 					            for (l=0; l<INNER; l++) { p_dX[hash[idx]*INNER+l] += p_dX[istar*INNER+l]; }
 					        }
 					        else {
 					            hash[idx] = jstar;
-					            #pragma omp simd
+					            #pragma omp simd // Compiler knows how to unroll.
 					            for (l=0; l<INNER; l++) { p_dX[hash[idx]*INNER+l] = p_dX[istar*INNER+l]; }
 					            p_X[jstar] = p_X[istar];
 					            p_Y[jstar] = p_Y[istar];
@@ -312,33 +321,33 @@ int main(int argc, char *argv[])
 
 						// row and col location of the star based on X, Y values.
 						int idx_row; 
-						int idx_col;					    
-
-						// Calculate PSF and then add to model_diff
-						for (k=0; k<jstar; k++){
-							idx_row = (2*MARGIN) + (REGION/2) + p_X[k];
-							idx_col = (2*MARGIN) + (REGION/2) + p_Y[k];							
-							// Compute PSF and store
-							#pragma omp simd
-							for (l=0; l<NPIX2; l++){
-								#pragma omp simd
-								for (m=0; m<INNER; m++){
-									model_diff[(idx_row+(l/NPIX))*BLOCK + (idx_col+(l%NPIX))] += p_dX[k*INNER+m] * A[m*NPIX2+l];
-								} 
-							}// End of PSF calculation for K-th star
-						}
+						int idx_col;
 
 						#pragma omp simd
 						for (l=0; l<BLOCK_LOGLIKE * BLOCK_LOGLIKE; l++){
 							model_diff[l] = 0;
 						}
+
+						// Calculate PSF and then add to model_diff
+						for (k=0; k<jstar; k++){
+							idx_row = (2*MARGIN) + (REGION/2) + p_X[k];
+							idx_col = (2*MARGIN) + (REGION/2) + p_Y[k];							
+							#pragma omp simd
+							for (l=0; l<NPIX2; l++){
+								for (m=0; m<INNER; m++){
+									// AVX_CACHE_VERSION
+									model_diff[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK_LOGLIKE + (idx_col+(l%NPIX)-NPIX_div2)] += p_dX[k*AVX_CACHE+m] * A[m*NPIX2+l];
+								} 
+							}// End of PSF calculation for K-th star
+						}
+
 						// Add to the model image
 						idx_row = ibx * BLOCK - 2*MARGIN - (REGION/2);
 						idx_col = iby * BLOCK - 2*MARGIN - (REGION/2);
 						#pragma omp simd
 						for (l=0; l<BLOCK_LOGLIKE; l++){						
 							for (k=0; k<BLOCK_LOGLIKE; k++){
-								MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] += model_diff[(idx_row+l)*BLOCK_LOGLIKE + (idx_col+k)];
+								MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] += model_diff[l*BLOCK_LOGLIKE + (idx_col+k)];
 							}
 						}
 
@@ -355,7 +364,6 @@ int main(int argc, char *argv[])
 						//simd reduction
 						idx_row = ibx * BLOCK - MARGIN - (REGION/2);
 						idx_col = iby * BLOCK - MARGIN - (REGION/2);
-
 						__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];
 						#pragma omp simd
 						for (k=0; k<AVX_CACHE; k++){
@@ -386,7 +394,7 @@ int main(int argc, char *argv[])
 							#pragma omp simd
 							for (l=0; l<BLOCK_LOGLIKE; l++){						
 								for (k=0; k<BLOCK_LOGLIKE; k++){
-									MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] -= model_diff[(idx_row+l)*BLOCK_LOGLIKE + (idx_col+k)];
+									MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] -= model_diff[l*BLOCK_LOGLIKE + (idx_col+k)];
 								}
 							}
 						}
@@ -410,6 +418,6 @@ int main(int argc, char *argv[])
 	dt_per_iter = (dt / (NITER-NITER_BURNIN)) * (1e06); // Burn-in	
 	double dt_eff = dt_per_iter/ (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM / 4);
 	// dt_per_iter = (dt / NITER) * (1e06); // Actual	
-	printf("ns =%5d, elapsed time per iter (us): %.3f, t_eff (us): %.3f\n", ns, dt_per_iter, dt_eff);
+	printf("ns =%5d, elapsed time per iter (us): %.3f, t_serial (us): %.3f\n", ns, dt_per_iter, dt_eff);
 	} // End of nstar loop
 }
