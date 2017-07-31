@@ -30,8 +30,8 @@
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 10000 // Number of burn-in to perform
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 100 // Number of burn-in to perform
+#define NITER (100+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -139,9 +139,9 @@ int main(int argc, char *argv[])
 	// * Pre-allocate image DATA, MODEL, design matrix, num_stars, and loglike
 	int size_of_DATA = IMAGE_SIZE;
 	int size_of_A = NPIX2 * INNER;
-	int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD; // Padding so as to not worry about margin. Only working on the inner region.
+	// int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD; // Padding so as to not worry about margin. Only working on the inner region.
 	// AVX_CACHE_VERSION
-	// int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD * AVX_CACHE; // Padding so that no data contention occurs.	
+	int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD * AVX_CACHE; // Padding so that no data contention occurs.	
 	__attribute__((aligned(64))) float DATA[size_of_DATA]; // Generate positive test data. 64 bytes aligned.
 	__attribute__((aligned(64))) float MODEL[size_of_DATA]; // Allocate model image. 64 bytes aligned.
 	__attribute__((aligned(64))) float WEIGHT[size_of_DATA]; // Inverse variance map
@@ -189,17 +189,24 @@ int main(int argc, char *argv[])
 			// printf("Parity: (%d, %d)\n", par_X, par_Y);
 
 			// * Pre-allocate space for X, Y, dX, parity_X, parity_Y.
-			int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns; // 
-			int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns * INNER; // Each block gets ns * INNER. Note, however, only the first 10 elements matter.
-			// AVX_CACHE_VERSION
 			// int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns; // 
 			// int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns * INNER; // Each block gets ns * INNER. Note, however, only the first 10 elements matter.
-
+			// AVX_CACHE_VERSION
+			int ns_AVX_CACHE;			
+			if ((ns % AVX_CACHE) == 0){
+				ns_AVX_CACHE = ns;
+			}
+			else{
+				ns_AVX_CACHE = ((ns/AVX_CACHE)+1) * AVX_CACHE;
+			}
+			int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns_AVX_CACHE; // 
+			int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns * AVX_CACHE; // Each block gets ns * INNER. Note, however, only the first 10 elements matter.
 
 			__attribute__((aligned(64))) int X[size_of_XYF]; // Assume 4 bytes integer
 			__attribute__((aligned(64))) int Y[size_of_XYF];
 			// __attribute__((aligned(64))) float F[size_of_XYF]; // The flux variable is not used 
-			__attribute__((aligned(64))) float dX[size_of_dX];			
+			__attribute__((aligned(64))) float dX[size_of_dX];
+
 
 			// Randomly generate X, Y, dX, dY
 			init_mat_float(dX, size_of_dX, 0.0, 1); 
@@ -229,17 +236,29 @@ int main(int argc, char *argv[])
 
 						// Read into cache
 						// Manual pre-fetching might be bad...
-						__attribute__((aligned(64))) float p_dX[INNER * ns];
-						__attribute__((aligned(64))) int p_X[ns]; // Really you only need ns
-						__attribute__((aligned(64))) int p_Y[ns];						
-						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
+						// __attribute__((aligned(64))) float p_dX[INNER * ns];
+						// __attribute__((aligned(64))) int p_X[ns]; // Really you only need ns
+						// __attribute__((aligned(64))) int p_Y[ns];						
+						// __attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
+						// AVX_CACHE_VERSION
+						__attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
+						__attribute__((aligned(64))) int p_X[ns_AVX_CACHE]; // Really you only need ns
+						__attribute__((aligned(64))) int p_Y[ns_AVX_CACHE];						
+						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable						
+
 
 						// Storage for PSF
-						__attribute__((aligned(64))) float PSF[ns * NPIX2];						
+						__attribute__((aligned(64))) float PSF[ns * NPIX2];
+						// AVX_CACHE_VERSION: Since PSF is called from cache ignore this.
+
 
 						// Start index for X, Y, F and dX, dY
-						int idx_XYF = block_ID * ns;
-						int idx_dX = block_ID * ns * INNER;						
+						// int idx_XYF = block_ID * ns;
+						// int idx_dX = block_ID * ns * INNER;
+						// AVX_CACHE_VERSION
+						int idx_XYF = block_ID * ns_AVX_CACHE;
+						int idx_dX = block_ID * ns * AVX_CACHE;						
+
 						#pragma omp simd
 						for (k=0; k<ns; k++){ // You only need ns
 							p_X[k] = X[idx_XYF+k];
@@ -251,6 +270,7 @@ int main(int argc, char *argv[])
 								p_dX[INNER*k+m] = dX[idx_dX+k*INNER+m];
 							}
 						}
+
 
 						// This actually seems to slow down the program.
 						// __attribute__((aligned(64))) float p_A[size_of_A]; // Private copy of A. 
@@ -265,7 +285,7 @@ int main(int argc, char *argv[])
 						int idx_col;
 						// int psf_width = NPIX; // Not sure why simply using NPIX rather than a variable.
 						// Update the model by inserting ns stars
-						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX. 
+						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
 
 						// Hashing. This steps reduces number of PSFs that need to be evaluated.
 					    for (k=0; k<REGION*REGION; k++) { hash[k] = -1; }
@@ -303,6 +323,8 @@ int main(int argc, char *argv[])
 								} 
 							}// End of PSF calculation for K-th star
 						}
+
+
 						// Begin Insert
 						for (k=0; k<jstar; k++){
 							// Add PSF into the model
@@ -317,7 +339,11 @@ int main(int argc, char *argv[])
 
 						// ----- Compute the new likelihood based on the updated model. ----- //
 						// Sum regions in BLOCK_LOGLIKE
-						float b_loglike = LOGLIKE[block_ID];// Loglikelihood corresponding to the block.
+						// float b_loglike = LOGLIKE[block_ID];// Loglikelihood corresponding to the block.
+						// AVX_CACHE_VERSION
+						float b_loglike = LOGLIKE[block_ID * AVX_CACHE];// Loglikelihood corresponding to the block.
+
+
 						float p_loglike = 0; // Proposed move's loglikehood
 
 						//simd reduction
