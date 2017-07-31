@@ -263,8 +263,6 @@ int main(int argc, char *argv[])
 						__attribute__((aligned(64))) int p_Y[ns_AVX_CACHE];						
 						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
 
-						// Intermediate add point						
-						__attribute__((aligned(64))) float model_diff[BLOCK_LOGLIKE*BLOCK_LOGLIKE];
 						// Proposed model
 						__attribute__((aligned(64))) float model_proposed[BLOCK_LOGLIKE*BLOCK_LOGLIKE];
 
@@ -329,15 +327,18 @@ int main(int argc, char *argv[])
 					    }
 
 						// row and col location of the star based on X, Y values.
-						int idx_row; 
-						int idx_col;
+						int idx_row = ibx * BLOCK - 2*MARGIN - (REGION/2);
+						int idx_col = iby * BLOCK - 2*MARGIN - (REGION/2);
 
+						// Initializing the proposal
 						#pragma omp simd
-						for (l=0; l<BLOCK_LOGLIKE * BLOCK_LOGLIKE; l++){
-							model_diff[l] = 0;
-						}
+						for (l=0; l<BLOCK_LOGLIKE; l++){						
+							for (k=0; k<BLOCK_LOGLIKE; k++){
+								model_proposed[l*BLOCK_LOGLIKE + k] = MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)];
+							}
+						}						
 
-						// Calculate PSF and then add to model_diff
+						// Calculate PSF and then add to model proposed
 						for (k=0; k<jstar; k++){
 							idx_row = (2*MARGIN) + (REGION/2) + p_X[k];
 							idx_col = (2*MARGIN) + (REGION/2) + p_Y[k];							
@@ -345,19 +346,9 @@ int main(int argc, char *argv[])
 							for (l=0; l<NPIX2; l++){
 								for (m=0; m<INNER; m++){
 									// AVX_CACHE_VERSION
-									model_diff[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK_LOGLIKE + (idx_col+(l%NPIX)-NPIX_div2)] += p_dX[k*AVX_CACHE+m] * A[m*NPIX2+l];
+									model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK_LOGLIKE + (idx_col+(l%NPIX)-NPIX_div2)] += p_dX[k*AVX_CACHE+m] * A[m*NPIX2+l];
 								} 
 							}// End of PSF calculation for K-th star
-						}
-
-						// Add to the model image and save to the model_proposed
-						idx_row = ibx * BLOCK - 2*MARGIN - (REGION/2);
-						idx_col = iby * BLOCK - 2*MARGIN - (REGION/2);
-						#pragma omp simd
-						for (l=0; l<BLOCK_LOGLIKE; l++){						
-							for (k=0; k<BLOCK_LOGLIKE; k++){
-								model_proposed[l*BLOCK_LOGLIKE + k] = MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] + model_diff[l*BLOCK_LOGLIKE + k];
-							}
 						}
 
 
@@ -369,8 +360,8 @@ int main(int argc, char *argv[])
 						float p_loglike = 0; // Proposed move's loglikehood
 
 						//simd reduction
-						idx_row = ibx * BLOCK - MARGIN - (REGION/2);
-						idx_col = iby * BLOCK - MARGIN - (REGION/2);
+						idx_row = ibx * BLOCK - (2 * MARGIN) - (REGION/2);
+						idx_col = iby * BLOCK - (2 * MARGIN) - (REGION/2);
 						__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];
 						#pragma omp simd
 						for (k=0; k<AVX_CACHE; k++){
@@ -400,12 +391,7 @@ int main(int argc, char *argv[])
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
 						// If bigger then undo the addition by subtracting what was added to the model image.						
 						if (flip_coin_biased(0.75)){ // Currently, use flip coin.
-							// #pragma omp simd
-							// for (l=0; l<BLOCK_LOGLIKE; l++){						
-							// 	for (k=0; k<BLOCK_LOGLIKE; k++){
-							// 		MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] -= model_diff[l*BLOCK_LOGLIKE + k];
-							// 	}
-							// }
+							// If the proposed model is rejected. Do nothing.
 						}
 						else{
 							// Accept the proposal
