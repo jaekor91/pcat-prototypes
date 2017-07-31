@@ -38,7 +38,7 @@
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define BLOCK_LOGLIKE (BLOCK + (2 * MARGIN)+ REGION) // BLOCK_LOGLIKE is twice larger in size in each dimension.
-#define HASHING 0 // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
+#define HASHING REGION // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
 void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
@@ -140,6 +140,8 @@ int main(int argc, char *argv[])
 	int size_of_DATA = IMAGE_SIZE;
 	int size_of_A = NPIX2 * INNER;
 	int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD; // Padding so as to not worry about margin. Only working on the inner region.
+	// AVX_CACHE_VERSION
+	// int size_of_LOGLIKE = NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD * AVX_CACHE; // Padding so that no data contention occurs.	
 	__attribute__((aligned(64))) float DATA[size_of_DATA]; // Generate positive test data. 64 bytes aligned.
 	__attribute__((aligned(64))) float MODEL[size_of_DATA]; // Allocate model image. 64 bytes aligned.
 	__attribute__((aligned(64))) float WEIGHT[size_of_DATA]; // Inverse variance map
@@ -189,6 +191,11 @@ int main(int argc, char *argv[])
 			// * Pre-allocate space for X, Y, dX, parity_X, parity_Y.
 			int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns; // 
 			int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns * INNER; // Each block gets ns * INNER. Note, however, only the first 10 elements matter.
+			// AVX_CACHE_VERSION
+			// int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns; // 
+			// int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns * INNER; // Each block gets ns * INNER. Note, however, only the first 10 elements matter.
+
+
 			__attribute__((aligned(64))) int X[size_of_XYF]; // Assume 4 bytes integer
 			__attribute__((aligned(64))) int Y[size_of_XYF];
 			// __attribute__((aligned(64))) float F[size_of_XYF]; // The flux variable is not used 
