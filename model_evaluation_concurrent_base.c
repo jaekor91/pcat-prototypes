@@ -31,7 +31,8 @@
 #define NUM_BLOCKS_PER_DIM 16	// Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
-#define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+2) // Note that if the image size is too big, then the computer may not be able to hold. 
+#define NUM_PAD_BLOCK_PER_SIDE 1
+#define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+(2*NUM_PAD_BLOCK_PER_SIDE)) // Note that if the image size is too big, then the computer may not be able to hold. 
 #define NITER_BURNIN 500 // Number of burn-in to perform
 #define NITER (100+NITER_BURNIN) // Number of iterations
 #define LARGE_LOGLIKE 100 // Large loglike value filler.
@@ -245,8 +246,8 @@ int main(int argc, char *argv[])
 			{
 				// Recall that we only consider the center blocks. That's where the extra 1 come from
 				#pragma omp for collapse(2)
-				for (iby=1+par_Y; iby< (NUM_BLOCKS_PER_DIM_W_PAD-1); iby+=2){ // Column direction				
-					for (ibx=1+par_X; ibx< (NUM_BLOCKS_PER_DIM_W_PAD-1); ibx+=2){ // Row direction
+				for (iby=NUM_PAD_BLOCK_PER_SIDE+par_Y; iby< (NUM_BLOCKS_PER_DIM_W_PAD- NUM_PAD_BLOCK_PER_SIDE); iby+=2){ // Column direction				
+					for (ibx=NUM_PAD_BLOCK_PER_SIDE+par_X; ibx< (NUM_BLOCKS_PER_DIM_W_PAD- NUM_PAD_BLOCK_PER_SIDE); ibx+=2){ // Row direction
 						int k, l, m; // private loop variables
 						int block_ID = (ibx * NUM_BLOCKS_PER_DIM_W_PAD) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 						// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
