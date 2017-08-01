@@ -24,18 +24,17 @@
 #define NPIX 25 // PSF single dimension
 #define NPIX_div2 12
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
-#define MARGIN 4 // Margin width of the block
-#define REGION 8 // Core proposal region
-#define BLOCK (REGION + (2 * MARGIN))
-#define BLOCK_LOGLIKE (BLOCK + (2 * MARGIN)+ REGION) // BLOCK_LOGLIKE is twice larger in size in each dimension.
-#define NUM_BLOCKS_PER_DIM 16	// Note that if the image size is too big, then the computer may not be able to hold. 
+#define MARGIN1 4 // Margin width of the block
+#define MARGIN2 NPIX_div2 // Half of PSF
+#define REGION 8 // Core proposal region 
+#define BLOCK (REGION + 2 (MARGIN1 * MARGIN2))
+#define NUM_BLOCKS_PER_DIM 8	// Note that if the image size is too big, then the computer may not be able to hold. 
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
-#define NUM_PAD_BLOCK_PER_SIDE 1
+#define NUM_PAD_BLOCK_PER_SIDE 0
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+(2*NUM_PAD_BLOCK_PER_SIDE)) // Note that if the image size is too big, then the computer may not be able to hold. 
 #define NITER_BURNIN 500 // Number of burn-in to perform
 #define NITER (100+NITER_BURNIN) // Number of iterations
-#define LARGE_LOGLIKE 100 // Large loglike value filler.
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
