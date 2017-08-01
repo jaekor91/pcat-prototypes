@@ -189,8 +189,6 @@ int main(int argc, char *argv[])
 		// Start of the loop
 		for (j=0; j<NITER; j++){
 			// * Pre-allocate space for X, Y, dX, parity_X, parity_Y.
-			// int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns; // 
-			// int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns * INNER; // Each block gets ns * INNER. Note, however, only the first 10 elements matter.
 			// AVX_CACHE_VERSION
 			int ns_AVX_CACHE; 		
 			if ((ns % AVX_CACHE) == 0){
@@ -215,12 +213,12 @@ int main(int argc, char *argv[])
 			init_mat_int(Y, size_of_XYF, 0, HASHING);
 
 			// For experimentign with offsets.
-			// int offset_X = generate_offset(0, REGION);
-			// int offset_Y = generate_offset(0, REGION);
+			int offset_X = generate_offset(-REGION, REGION);
+			int offset_Y = generate_offset(-REGION, REGION);
 
 			// print_mat_int(X, size_of_XYF); // Used to check the values of the matrix X, Y.
 
-		// 	start = omp_get_wtime(); // Timing starts here 
+			start = omp_get_wtime(); // Timing starts here 
 		// 	// ----- Model evaluation, followed by acceptance or rejection. ----- //
 		// 	// Iterating through all the blocks.
 		// 	// IMPORTANT: X is the row direction and Y is the column direction.
@@ -396,12 +394,12 @@ int main(int argc, char *argv[])
 		// 		} // End of x block loop
 		// 	}// End of OMP parallel section
 
-		// 	end = omp_get_wtime();
-		// 	// Update time only if burn in has passed.
-		// 	if (j>NITER_BURNIN){
-		// 		dt += (end-start);
-		// 	}
-		// } // End of NITER loop
+			end = omp_get_wtime();
+			// Update time only if burn in has passed.
+			if (j>NITER_BURNIN){
+				dt += (end-start);
+			}
+		} // End of NITER loop
 
 
 	// Calculatin the time took.
