@@ -3,7 +3,6 @@
 // one region at a time. (However, we may experiment with a thread spawning addition threads
 // of its own in the future.)
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,10 +12,6 @@
 #include <omp.h>
 #include <assert.h>
 #include <sys/mman.h>
-
-
-
-
 
 // Define global dimensions
 #define INNER 10 // Inner dimension of the matrix multplication.
@@ -32,10 +27,10 @@
 								// +1 for the extra padding. We only consider the inner blocks.
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define INCREMENT 1 // Block loop increment
-#define NUM_PAD_BLOCK_PER_SIDE 0
+#define NUM_PAD_BLOCK_PER_SIDE 1
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+(2*NUM_PAD_BLOCK_PER_SIDE)) // Note that if the image size is too big, then the computer may not be able to hold. 
 #define NITER_BURNIN 1000 // Number of burn-in to perform
-#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define NITER (100+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
@@ -211,12 +206,15 @@ int main(int argc, char *argv[])
 			// init_mat_float(F, size_of_XYF, 0.0, 1); 
 			init_mat_int(X, size_of_XYF, 0, HASHING); 
 			init_mat_int(Y, size_of_XYF, 0, HASHING);
+			// print_mat_int(X, size_of_XYF); // Used to check the values of the matrix X, Y.			
 
 			// For experimentign with offsets.
-			int offset_X = generate_offset(-REGION, REGION);
-			int offset_Y = generate_offset(-REGION, REGION);
+			int offset_X = generate_offset(-BLOCK/4, BLOCK/4)*2;
+			int offset_Y = generate_offset(-BLOCK/4, BLOCK/4)*2;
+			// offset_Y = 0;
+			// offset_X = 0;
+			// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
 
-			// print_mat_int(X, size_of_XYF); // Used to check the values of the matrix X, Y.
 
 			start = omp_get_wtime(); // Timing starts here 
 			// ----- Model evaluation, followed by acceptance or rejection. ----- //
@@ -250,6 +248,7 @@ int main(int argc, char *argv[])
 						int idx_XYF = block_ID * ns_AVX_CACHE;
 						int idx_dX = block_ID * ns * AVX_CACHE;						
 
+						// I think it doesn't make much difference whether you pre-fetch these or not.
 						#pragma omp simd
 						for (k=0; k<ns; k++){ // You only need ns
 							p_X[k] = X[idx_XYF+k];
@@ -265,8 +264,8 @@ int main(int argc, char *argv[])
 
 						// ----- Compute proposed model ----- //
 						// Strategy: Read in the current model, calculate the loglike, directly insert PSF, calculate loglike again and comapre
-						int idx_row = ibx * BLOCK;
-						int idx_col = iby * BLOCK;						
+						int idx_row = ibx * BLOCK + offset_X;
+						int idx_col = iby * BLOCK + offset_Y;						
 
 						// Initializing the proposal and transferring data
 						// It doesn't seem to matter whether transferring one array at a time.
@@ -382,8 +381,8 @@ int main(int argc, char *argv[])
 						}
 						else{
 							// Accept the proposal
-							idx_row = ibx * BLOCK;
-							idx_col = iby * BLOCK;
+							idx_row = ibx * BLOCK + offset_X;
+							idx_col = iby * BLOCK + offset_Y;
 							#pragma omp simd
 							for (l=0; l<BLOCK; l++){
 								for (k=0; k<BLOCK; k++){
