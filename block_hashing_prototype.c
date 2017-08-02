@@ -31,9 +31,8 @@
 #define NITER (2+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 102 * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM* BLOCK)
+#define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM+1) * BLOCK // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
-#define MAX_SEEDS 256
 
 
 int generate_offset(int min, int max)
@@ -46,7 +45,6 @@ int generate_offset(int min, int max)
 	}
 	return i;	
 }
-
 
 
 
