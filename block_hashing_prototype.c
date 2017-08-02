@@ -30,7 +30,7 @@
 #define NITER_BURNIN 0 // Number of burn-in to perform
 #define NITER (2+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
-#define MAX_STARS 5 // 102 * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 102 * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM* BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 #define MAX_SEEDS 256
@@ -83,23 +83,17 @@ int main(int argc, char *argv[])
 	double start, end, dt, dt_per_iter; // For timing purpose.
 	// For each number of stars.
 	dt = 0; // Time accumulator
-	// Start of the loop
 
 	// Initializing random seed for the whole program.
 	srand(123);
+	int time_seed; // Every time parallel region is entered, reset this seed as below.
 
+	// Start of the loop
 	for (j=0; j<NITER; j++){
-		// At every iteration generate a new seed
-		// for each thread
-		int seeds[MAX_SEEDS];
-		for (i=0; i < MAX_SEEDS; i++){
-			seeds[i] = rand();
-			if (i < 4){
-				printf("Random seed %d: %d\n", i, seeds[i]);
-			}
-		}
+		// printf("Time seed %d\n", time_seed);
 
-		// Initialize block ids to -1. 
+		// Initialize block ids to -1.
+		time_seed = (int) (time(NULL)) * rand();		
 		#pragma omp parallel
 		{	
 			#pragma omp for simd
@@ -108,18 +102,15 @@ int main(int argc, char *argv[])
 			}
            
 			// Generate (in parallel the positions of) each object.
-			int p_seed = seeds[omp_get_thread_num()];
+			int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
 			#pragma omp for
 			for (i=0; i<MAX_STARS; i++){
 				int idx = i*AVX_CACHE;
 				OBJS[idx] = rand_r(&p_seed) % IMAGE_WIDTH;
 				OBJS[idx+1] = rand_r(&p_seed) % IMAGE_WIDTH;
-				printf("%d\n", rand_r(&p_seed));
-				}
-	
+				// if (i < 10) { printf("%d\n", rand_r(&p_seed)); } // Check random number generation
+			}
 		}
-		printf("End of iteration %d for 1.\n", j);
-
 
 		// Generating offsets
 		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
