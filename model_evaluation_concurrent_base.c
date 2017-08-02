@@ -192,27 +192,19 @@ int main(int argc, char *argv[])
 			else{
 				ns_AVX_CACHE = ((ns/AVX_CACHE)+1) * AVX_CACHE;
 			}
-			int size_of_XYF = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns_AVX_CACHE; // 
-			int size_of_dX = (NUM_BLOCKS_PER_DIM_W_PAD * NUM_BLOCKS_PER_DIM_W_PAD) * ns * AVX_CACHE; // Each block gets ns * INNER. Note, however, only the first 10 elements matter.
+			int size_of_XYF = ns_AVX_CACHE; // 
 
 			__attribute__((aligned(64))) int X[size_of_XYF]; // Assume 4 bytes integer
 			__attribute__((aligned(64))) int Y[size_of_XYF];
-			// __attribute__((aligned(64))) float F[size_of_XYF]; // The flux variable is not used 
-			__attribute__((aligned(64))) float dX[size_of_dX];
-
 
 			// Randomly generate X, Y, dX, dY
-			init_mat_float(dX, size_of_dX, 0.0, 1); 
-			// init_mat_float(F, size_of_XYF, 0.0, 1); 
 			init_mat_int(X, size_of_XYF, 0, HASHING); 
 			init_mat_int(Y, size_of_XYF, 0, HASHING);
-			// print_mat_int(X, size_of_XYF); // Used to check the values of the matrix X, Y.			
+			// print_mat_int(X, size_of_XYF); // Used to check the values of the matrix X, Y.
 
 			// For experimentign with offsets.
-			int offset_X = generate_offset(-BLOCK/2, BLOCK/2);
-			int offset_Y = generate_offset(-BLOCK/2, BLOCK/2);
-			// offset_Y = 0;
-			// offset_X = 0;
+			int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+			int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 			// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
 
 
@@ -232,7 +224,6 @@ int main(int argc, char *argv[])
 						// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
 
 						// ------ Read into cache ----- //
-						// Manual pre-fetching might be bad...
 						// AVX_CACHE_VERSION
 						__attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
 						__attribute__((aligned(64))) int p_X[ns_AVX_CACHE]; // Really you only need ns
@@ -244,24 +235,13 @@ int main(int argc, char *argv[])
 						__attribute__((aligned(64))) float data[BLOCK * BLOCK];
 
 						// Start index for X, Y, F and dX, dY
-						// AVX_CACHE_VERSION
-						int idx_XYF = block_ID * ns_AVX_CACHE;
-						int idx_dX = block_ID * ns * AVX_CACHE;						
-
-						// I think it doesn't make much difference whether you pre-fetch these or not.
+						// // I think it doesn't make much difference whether you pre-fetch these or not.
 						#pragma omp simd
 						for (k=0; k<ns; k++){ // You only need ns
-							p_X[k] = X[idx_XYF+k];
-							p_Y[k] = Y[idx_XYF+k];
+							p_X[k] = X[k];
+							p_Y[k] = Y[k];
 						}
-						// AVX_CACHE_VERSION
-						#pragma omp simd 
-						for (k=0; k<ns; k++){
-							for (m=0; m<INNER; m++){
-								p_dX[AVX_CACHE*k+m] = dX[idx_dX+k*AVX_CACHE+m];
-							}
-						}
-
+						
 						// ----- Compute proposed model ----- //
 						// Strategy: Read in the current model, calculate the loglike, directly insert PSF, calculate loglike again and comapre
 						int idx_row = ibx * BLOCK + offset_X;
