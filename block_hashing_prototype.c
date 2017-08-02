@@ -28,12 +28,12 @@
 								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define INCREMENT 1 // Block loop increment
 #define NITER_BURNIN 0 // Number of burn-in to perform
-#define NITER (5+NITER_BURNIN) // Number of iterations
+#define NITER (2+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 5 // 102 * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM* BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
-
+#define MAX_SEEDS 256
 
 
 int generate_offset(int min, int max)
@@ -71,6 +71,7 @@ int main(int argc, char *argv[])
 	printf( "Number of threads: %d\n", omp_get_max_threads( ));	
 
 
+
 	// ----- Declare global, shared variables ----- //
 	// Object array. Each object gets AVX_CACHE space or 16 floats.
 	__attribute__((aligned(64))) float OBJS[AVX_CACHE * MAX_STARS];
@@ -84,8 +85,19 @@ int main(int argc, char *argv[])
 	dt = 0; // Time accumulator
 	// Start of the loop
 
+	// Initializing random seed for the whole program.
+	srand(123);
 
 	for (j=0; j<NITER; j++){
+		// At every iteration generate a new seed
+		// for each thread
+		int seeds[MAX_SEEDS];
+		for (i=0; i < MAX_SEEDS; i++){
+			seeds[i] = rand();
+			if (i < 4){
+				printf("Random seed %d: %d\n", i, seeds[i]);
+			}
+		}
 
 		// Initialize block ids to -1. 
 		#pragma omp parallel
@@ -96,17 +108,18 @@ int main(int argc, char *argv[])
 			}
            
 			// Generate (in parallel the positions of) each object.
-			int p_seed = omp_get_thread_num(); // Each thread gets its own random seed.
+			int p_seed = seeds[omp_get_thread_num()];
 			#pragma omp for
 			for (i=0; i<MAX_STARS; i++){
 				int idx = i*AVX_CACHE;
 				OBJS[idx] = rand_r(&p_seed) % IMAGE_WIDTH;
 				OBJS[idx+1] = rand_r(&p_seed) % IMAGE_WIDTH;
-				printf("%d\n", rand());
+				printf("%d\n", rand_r(&p_seed));
 				}
 	
 		}
-		printf("End of iteration %d\n", j);
+		printf("End of iteration %d for 1.\n", j);
+
 
 		// Generating offsets
 		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
