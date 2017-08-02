@@ -35,7 +35,7 @@
 #define NITER (1000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM+1) * BLOCK // Extra BLOCK is for padding with haf block on each side
+#define IMAGE_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK)// Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH) 
 #define HASHING REGION // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
