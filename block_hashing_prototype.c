@@ -27,10 +27,10 @@
 #define INCREMENT 1 // Block loop increment
 #define NUM_PAD_BLOCK_PER_SIDE 0
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+(2*NUM_PAD_BLOCK_PER_SIDE)) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 50000 // Number of burn-in to perform
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 0 // Number of burn-in to perform
+#define NITER (1+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
-#define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 5 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 
@@ -99,6 +99,12 @@ int main(int argc, char *argv[])
 				OBJS[idx] = rand() % IMAGE_WIDTH;
 				OBJS[idx+1] = rand() % IMAGE_WIDTH;
 			}
+		}
+
+		for (i=0; i<MAX_STARS; i++){
+			int idx = i*AVX_CACHE;			
+			printf("OBJS x/y: %.1f/%.1f\n", OBJS[idx], OBJS[idx+1]);
+			printf("OBJS_BID: %d\n\n", OBJS_BID[i]);
 		}
 
 		// Generating offsets
