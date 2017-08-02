@@ -1,3 +1,9 @@
+// OMP ENVIRONEMNT
+// export OMP_NUM_THREADS=4
+// export OMP_STACKSIZE=16M
+// export OMP_WAIT_POLICY=ACTIVE
+// export KMP_AFFINITY=scatter
+
 // Model evaluation and update prototype
 // General strategy: Use each thread to update a small block (48 x 48 or 32 x 32). One thread can work on 
 // one region at a time. (However, we may experiment with a thread spawning addition threads
@@ -241,7 +247,7 @@ int main(int argc, char *argv[])
 							p_X[k] = X[k];
 							p_Y[k] = Y[k];
 						}
-						
+
 						// ----- Compute proposed model ----- //
 						// Strategy: Read in the current model, calculate the loglike, directly insert PSF, calculate loglike again and comapre
 						int idx_row = ibx * BLOCK + offset_X;
