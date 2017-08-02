@@ -23,12 +23,13 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 1	
+#define NUM_BLOCKS_PER_DIM 16	
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 0 // Number of burn-in to perform
-#define NITER (1+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 10000 // Number of burn-in to perform
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 102 * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define DATA_WIDTH (NUM_BLOCKS_PER_DIM * BLOCK)
 #define IMAGE_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 
@@ -57,7 +58,7 @@ int main(int argc, char *argv[])
 	printf("NITER: %d\n", (NITER-NITER_BURNIN));
 	printf("Block width: %d\n", BLOCK);
 	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
-	printf("Image width: %d\n", IMAGE_WIDTH);
+	printf("Data width: %d\n", DATA_WIDTH);
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM);
 	printf("MAX_STARS: %d\n", MAX_STARS);	
@@ -107,19 +108,19 @@ int main(int argc, char *argv[])
 			}
 		}
 
-		// Generating offsets
-		// int offset_X = 0; 
-		// int offset_Y = 0; 
-		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
-		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
-
-		printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
-
+		// ------- Generating offsets ------ //
 		// Note that image is padded with BLOCK/2 on every side.
 		// The mesh size is the same as the image size. It's shifted in each iteration.
 		// Positive offset corresponds to adding offset_X, offset_Y for getting the 
-		// relevant DATA and MODEL elements but subtracting when computing the block id.
+		// relevant DATA and MODEL elements but subtracting when computing the block id.		
+		// int offset_X = 0; 
+		// int offset_Y = 0; 
+		
+		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+		// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
 
+		
 		start = omp_get_wtime(); // Timing starts here 
 
 		// Determine block id using all the threads.
@@ -158,26 +159,30 @@ int main(int argc, char *argv[])
 		}// End of BID assign parallel region
 
 
+		// ----- Model evaluation, followed by acceptance or rejection. ----- //
+		// Iterating through all the blocks.
+		// IMPORTANT: X is the row direction and Y is the column direction.
+		#pragma omp parallel
+		{
+			int ibx, iby; // Block idx
+			// Recall that we only consider the center blocks. That's where the extra 1 come from
+			#pragma omp for collapse(2)
+			for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction				
+				for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction
+					int k, l, m; // private loop variables
+					int block_ID = (ibx * NUM_BLOCKS_PER_DIM) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
+					// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
+					
+				} // End of y block loop
+			} // End of x block loop
+		}// End of OMP parallel section
+
+
 		end = omp_get_wtime();
 		// Update time only if burn in has passed.
 		if (j>NITER_BURNIN){
 			dt += (end-start);
 		}// End compute time.
-
-
-
-		// // Checking the answer. Need to set NITER 1 so as not to flood command prompt.
-		// printf("Check answer.\n");
-		// for (i=0; i<MAX_STARS; i++){
-		// 	int idx = i*AVX_CACHE;	
-		// 	int bid = OBJS_BID[i];
-		// 	if (bid != -1){
-		// 		printf("OBJS x/y: %.1f/%.1f\n", OBJS[idx], OBJS[idx+1]);
-		// 		printf("OBJS_BID: %d\n\n", bid);
-		// 	}
-		// }// End check answer.
-
-
 	} // End of NITER loop
 
 	// Calculatin the time took.
