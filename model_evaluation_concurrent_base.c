@@ -6,8 +6,7 @@
 
 // Model evaluation and update prototype
 // General strategy: Use each thread to update a small block (48 x 48 or 32 x 32). One thread can work on 
-// one region at a time. (However, we may experiment with a thread spawning addition threads
-// of its own in the future.)
+// one region at a time.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,7 +20,8 @@
 
 // Define global dimensions
 #define INNER 10 // Inner dimension of the matrix multplication.
-#define AVX_CACHE 16 // Number of floats that can fit into AVX512
+#define AVX_CACHE 8 // Number of floats that can fit into cache. Haswell 8. KNL 16.
+#define AVX_CACHE2 16 // Always set to be 16
 #define NPIX 25 // PSF single dimension
 #define NPIX_div2 12
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
@@ -30,17 +30,13 @@
 #define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_PER_DIM 4	// Note that if the image size is too big, then the computer may not be able to hold. 
-								// +1 for the extra padding. We only consider the inner blocks.
-								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
 #define INCREMENT 1 // Block loop increment
-#define NUM_PAD_BLOCK_PER_SIDE 1
-#define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+(2*NUM_PAD_BLOCK_PER_SIDE)) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 5000 // Number of burn-in to perform
+#define NITER_BURNIN 1000 // Number of burn-in to perform
 #define NITER (1000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
-#define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
+#define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM+1) * BLOCK // Extra BLOCK is for padding with haf block on each side
+#define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH) 
 #define HASHING REGION // HASHING = 0 if we want to explore performance gain with the technique. Otherwise set to MARGIN.
 
 
@@ -154,7 +150,7 @@ int main(int argc, char *argv[])
 	int nstar[11] = {0, 1, 2, 3, 4, 8, 16, 32, 40, 160, MAX_STARS};
 
 	// * Pre-allocate image DATA, MODEL, design matrix, num_stars, and loglike
-	int size_of_DATA = IMAGE_SIZE;
+	int size_of_DATA = IMAGE_SIZE; 
 	int size_of_A = NPIX2 * INNER;
 	// AVX_CACHE_VERSION
 	__attribute__((aligned(64))) float DATA[size_of_DATA]; // Generate positive test data. 64 bytes aligned.
@@ -174,7 +170,6 @@ int main(int argc, char *argv[])
 	// ----- Initialize global, shared variables ----- //
 	init_mat_float(DATA, size_of_DATA, 0.0, 1); // Fill data with random values
 	init_mat_float(MODEL, size_of_DATA, 0.0, 0); // Fill data with zero values
-	// init_mat_float(WEIGHT, size_of_DATA, 0.0, 1); // Fill data with random values	
 	init_mat_float(A, size_of_A, 0.0, 1); // Fill data with random values
 
 
@@ -223,15 +218,15 @@ int main(int argc, char *argv[])
 				int ibx, iby; // Block idx
 				// Recall that we only consider the center blocks. That's where the extra 1 come from
 				#pragma omp for collapse(2)
-				for (iby=NUM_PAD_BLOCK_PER_SIDE; iby< (NUM_BLOCKS_PER_DIM_W_PAD- NUM_PAD_BLOCK_PER_SIDE); iby+=INCREMENT){ // Column direction				
-					for (ibx=NUM_PAD_BLOCK_PER_SIDE; ibx< (NUM_BLOCKS_PER_DIM_W_PAD- NUM_PAD_BLOCK_PER_SIDE); ibx+=INCREMENT){ // Row direction
+				for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction				
+					for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction
 						int k, l, m; // private loop variables
-						int block_ID = (ibx * NUM_BLOCKS_PER_DIM_W_PAD) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
+						int block_ID = (ibx * NUM_BLOCKS_PER_DIM) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 						// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
 
 						// ------ Read into cache ----- //
 						// AVX_CACHE_VERSION
-						__attribute__((aligned(64))) float p_dX[AVX_CACHE * ns];
+						__attribute__((aligned(64))) float p_dX[AVX_CACHE2 * ns];
 						__attribute__((aligned(64))) int p_X[ns_AVX_CACHE]; // Really you only need ns
 						__attribute__((aligned(64))) int p_Y[ns_AVX_CACHE];						
 						__attribute__((aligned(64))) int hash[REGION*REGION]; // Hashing variable
@@ -250,8 +245,8 @@ int main(int argc, char *argv[])
 
 						// ----- Compute proposed model ----- //
 						// Strategy: Read in the current model, calculate the loglike, directly insert PSF, calculate loglike again and comapre
-						int idx_row = ibx * BLOCK + offset_X;
-						int idx_col = iby * BLOCK + offset_Y;						
+						int idx_row = ibx * BLOCK + offset_X + BLOCK/2; // BLOCK/2 is for the padding.
+						int idx_col = iby * BLOCK + offset_Y + BLOCK/2;						
 
 						// Initializing the proposal and transferring data
 						// It doesn't seem to matter whether transferring one array at a time.
@@ -328,7 +323,7 @@ int main(int argc, char *argv[])
 							for (l=0; l<NPIX2; l++){
 								for (m=0; m<INNER; m++){
 									// AVX_CACHE_VERSION
-									model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK + (idx_col+(l%NPIX)-NPIX_div2)] += p_dX[k*AVX_CACHE+m] * A[m*NPIX2+l];
+									model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK + (idx_col+(l%NPIX)-NPIX_div2)] += p_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
 								} 
 							}// End of PSF calculation for K-th star
 						}
@@ -366,9 +361,9 @@ int main(int argc, char *argv[])
 							// If the proposed model is rejected. Do nothing.
 						}
 						else{
-							// Accept the proposal
-							idx_row = ibx * BLOCK + offset_X;
-							idx_col = iby * BLOCK + offset_Y;
+							// Accept the proposal					
+							idx_row = ibx * BLOCK + offset_X + BLOCK/2; // BLOCK/2 is for the padding.
+							idx_col = iby * BLOCK + offset_Y + BLOCK/2; 
 							#pragma omp simd
 							for (l=0; l<BLOCK; l++){
 								for (k=0; k<BLOCK; k++){
