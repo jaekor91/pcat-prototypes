@@ -23,15 +23,13 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 1	// Note that if the image size is too big, then the computer may not be able to hold. 
-								// +1 for the extra padding. We only consider the inner blocks.
-								// Sqrt(Desired block number x 4). For example, if 256 desired, then 32. If 64 desired, 16.
+#define NUM_BLOCKS_PER_DIM 1	
 #define INCREMENT 1 // Block loop increment
 #define NITER_BURNIN 0 // Number of burn-in to perform
-#define NITER (2+NITER_BURNIN) // Number of iterations
+#define NITER (1+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 102 * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM+1) * BLOCK // Extra BLOCK is for padding with haf block on each side
+#define IMAGE_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 
 
@@ -104,16 +102,18 @@ int main(int argc, char *argv[])
 			#pragma omp for
 			for (i=0; i<MAX_STARS; i++){
 				int idx = i*AVX_CACHE;
-				OBJS[idx] = rand_r(&p_seed) % IMAGE_WIDTH;
-				OBJS[idx+1] = rand_r(&p_seed) % IMAGE_WIDTH;
-				// if (i < 10) { printf("%d\n", rand_r(&p_seed)); } // Check random number generation
+				OBJS[idx] = (rand_r(&p_seed) % (IMAGE_WIDTH-BLOCK)) + BLOCK/2;
+				OBJS[idx+1] = (rand_r(&p_seed) % (IMAGE_WIDTH-BLOCK)) + BLOCK/2;
 			}
 		}
 
 		// Generating offsets
+		// int offset_X = 0; 
+		// int offset_Y = 0; 
 		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
-		// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
+
+		printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
 
 		// Note that image is padded with BLOCK/2 on every side.
 		// The mesh size is the same as the image size. It's shifted in each iteration.
@@ -135,8 +135,8 @@ int main(int argc, char *argv[])
 				// Get x, y of the object.
 				// Offset is for the mesh offset.
 				int idx = i*AVX_CACHE;
-				int x = floor(OBJS[idx] - offset_X);
-				int y = floor(OBJS[idx+1] - offset_Y);
+				int x = floor(OBJS[idx] - offset_X - BLOCK/2);
+				int y = floor(OBJS[idx+1] - offset_Y - BLOCK/2);
 
 				int b_idx = x / BLOCK;
 				int b_idy = y / BLOCK;
@@ -148,12 +148,12 @@ int main(int argc, char *argv[])
 					(x_in_block < (MARGIN1+MARGIN2+REGION)) & (y_in_block < (MARGIN1+MARGIN2+REGION))){
 					// Caculate the block index
 					OBJS_BID[i] = (b_idx * NUM_BLOCKS_PER_DIM) + b_idy;					
-				}
-				// For debugging
-				// printf("OBJS x/y: %.1f/%.1f\n", OBJS[idx], OBJS[idx+1]);								
-				// printf("b_id x/y: %d, %d\n", b_idx, b_idy);
-				// printf("x/y_in_block: %d, %d\n", x_in_block, y_in_block);				
-				// printf("OBJS_BID: %d\n\n", OBJS_BID[i]);								
+					// // For debugging
+					// printf("OBJS x/y after cut: %d/%d\n", x, y);								
+					// printf("b_id x/y: %d, %d\n", b_idx, b_idy);
+					// printf("x/y_in_block: %d, %d\n", x_in_block, y_in_block);				
+					// printf("OBJS_BID: %d\n\n", OBJS_BID[i]);							
+				}					
 			}// End of parallel region
 		}// End of BID assign parallel region
 
