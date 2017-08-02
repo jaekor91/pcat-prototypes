@@ -2,8 +2,6 @@
 // x, y, blocksize of an object, the program determines to which block the object
 // belongs.
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -101,58 +99,43 @@ int main(int argc, char *argv[])
 			}
 		}
 
-		for (i=0; i<MAX_STARS; i++){
-			int idx = i*AVX_CACHE;			
-			printf("OBJS x/y: %.1f/%.1f\n", OBJS[idx], OBJS[idx+1]);
-			printf("OBJS_BID: %d\n\n", OBJS_BID[i]);
-		}
-
 		// Generating offsets
-		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
-		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+		int offset_X = 0; //generate_offset(-BLOCK/4, BLOCK/4) * 2;
+		int offset_Y = 0; // generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
 
-
-
-		// Need to think about what is happening exactly...
-
-
-
+		// Note that image is padded with BLOCK/2 on every side.
+		// The mesh size is the same as the image size. It's shifted in each iteration.
+		// Positive offset corresponds to adding offset_X, offset_Y for getting the 
+		// relevant DATA and MODEL elements but subtracting when computing the block id.
 
 		start = omp_get_wtime(); // Timing starts here 
-		// ----- Model evaluation, followed by acceptance or rejection. ----- //
-		// Iterating through all the blocks.
-		// IMPORTANT: X is the row direction and Y is the column direction.
-		#pragma omp parallel
-		{
-			int ibx, iby; // Block idx
-			// Recall that we only consider the center blocks. That's where the extra 1 come from
-			#pragma omp for collapse(2)
-			for (iby=NUM_PAD_BLOCK_PER_SIDE; iby< (NUM_BLOCKS_PER_DIM_W_PAD- NUM_PAD_BLOCK_PER_SIDE); iby+=INCREMENT){ // Column direction				
-				for (ibx=NUM_PAD_BLOCK_PER_SIDE; ibx< (NUM_BLOCKS_PER_DIM_W_PAD- NUM_PAD_BLOCK_PER_SIDE); ibx+=INCREMENT){ // Row direction
-					int k, l, m; // private loop variables
-					int block_ID = (ibx * NUM_BLOCKS_PER_DIM_W_PAD) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
-					// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
 
-					// ------ Read into cache ----- //
-					// AVX_CACHE_VERSION
-					// __attribute__((aligned(64))) float p_OJBS[AVX_CACHE];;
-					// Start index for X, Y, F and dX, dY
-					// #pragma omp simd
-					// for (k=0; k<ns; k++){ // You only need ns
-					// 	p_X[k] = X[k];
-					// 	p_Y[k] = Y[k];
-					// }
+		// // Need to think about what is happening exactly...
+		// #pragma omp parallel for 
+		// {
+		// 	for (i=0; i<MAX_STARS; i++){
+		// 		int idx = i*AVX_CACHE;
+		// 		OBJS[idx];
+		// 		OBJS[idx+1];
+		// 	}
+		// }
 
-				} // End of y block loop
-			} // End of x block loop
-		}// End of OMP parallel section
+		
 
 		end = omp_get_wtime();
 		// Update time only if burn in has passed.
 		if (j>NITER_BURNIN){
 			dt += (end-start);
-		}
+		}// End compute time.
+
+		// Checking the answer. Need to set NITER 1 so as not to flood command prompt.
+		for (i=0; i<MAX_STARS; i++){
+			int idx = i*AVX_CACHE;			
+			printf("OBJS x/y: %.1f/%.1f\n", OBJS[idx], OBJS[idx+1]);
+			printf("OBJS_BID: %d\n\n", OBJS_BID[i]);
+		}// End check answer.
+
 	} // End of NITER loop
 
 	// Calculatin the time took.
