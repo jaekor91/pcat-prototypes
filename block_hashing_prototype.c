@@ -27,8 +27,8 @@
 #define INCREMENT 1 // Block loop increment
 #define NUM_PAD_BLOCK_PER_SIDE 0
 #define NUM_BLOCKS_PER_DIM_W_PAD (NUM_BLOCKS_PER_DIM+(2*NUM_PAD_BLOCK_PER_SIDE)) // Note that if the image size is too big, then the computer may not be able to hold. 
-#define NITER_BURNIN 500000 // Number of burn-in to perform
-#define NITER (100000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 50000 // Number of burn-in to perform
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define MAX_STARS 1000 // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define IMAGE_WIDTH (NUM_BLOCKS_PER_DIM_W_PAD * BLOCK)
@@ -56,11 +56,6 @@ int main(int argc, char *argv[])
 
 	int i, j; // Initialization and NITER Loop variables	
 
-	// ----- Declare global, shared variables ----- //
-	// Object array. Each object gets AVX_CACHE space or 16 floats.
-	__attribute__((aligned(64))) float OBJS[AVX_CACHE * MAX_STARS];
-
-
 	// Print basic parameters of the problem.
 	int size_of_DATA = IMAGE_SIZE;
 	// printf("Image size: %d\n", size_of_DATA);
@@ -71,11 +66,17 @@ int main(int argc, char *argv[])
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM);
 	int stack_size = kmp_get_stacksize_s() / 1e06;
-	printf("Stack size being used: %dMB\n", stack_size);
+	printf("Stack size being used: %dMB\n", stack_size);	
 
 
 
-	// ----- Pre-allocate memory for within-loop shared variables ----- //
+	// ----- Declare global, shared variables ----- //
+	// Object array. Each object gets AVX_CACHE space or 16 floats.
+	__attribute__((aligned(64))) float OBJS[AVX_CACHE * MAX_STARS];
+	// Block ID of each object
+	__attribute__((aligned(64))) int OBJS_BID[MAX_STARS]; 
+
+
 	// ----- Main computation begins here ----- //
 	double start, end, dt, dt_per_iter; // For timing purpose.
 	// For each number of stars.
@@ -83,10 +84,33 @@ int main(int argc, char *argv[])
 	// Start of the loop
 	for (j=0; j<NITER; j++){
 
-		// For experimentign with offsets.
+		// Initialize block ids to -1. 
+		#pragma omp parallel
+		{	
+			#pragma omp for simd
+			for (i=0; i<MAX_STARS; i++){
+				OBJS_BID[i] = -1;
+			}
+		
+		// Generate (in parallel the positions of) each object.
+			#pragma omp for
+			for (i=0; i<MAX_STARS; i++){
+				int idx = i*AVX_CACHE;
+				OBJS[idx] = rand() % IMAGE_WIDTH;
+				OBJS[idx+1] = rand() % IMAGE_WIDTH;
+			}
+		}
+
+		// Generating offsets
 		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
+
+
+
+		// Need to think about what is happening exactly...
+
+
 
 
 		start = omp_get_wtime(); // Timing starts here 
@@ -124,7 +148,6 @@ int main(int argc, char *argv[])
 			dt += (end-start);
 		}
 	} // End of NITER loop
-
 
 	// Calculatin the time took.
 	dt_per_iter = (dt / (NITER-NITER_BURNIN)) * (1e06); // Burn-in	
