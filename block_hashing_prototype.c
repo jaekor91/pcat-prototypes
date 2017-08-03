@@ -23,7 +23,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 16	
+#define NUM_BLOCKS_PER_DIM 16
 #define INCREMENT 1 // Block loop increment
 #define NITER_BURNIN 10000 // Number of burn-in to perform
 #define NITER (1000+NITER_BURNIN) // Number of iterations
@@ -44,8 +44,6 @@ int generate_offset(int min, int max)
 	}
 	return i;	
 }
-
-
 
 
 int main(int argc, char *argv[])
@@ -162,17 +160,42 @@ int main(int argc, char *argv[])
 		// ----- Model evaluation, followed by acceptance or rejection. ----- //
 		// Iterating through all the blocks.
 		// IMPORTANT: X is the row direction and Y is the column direction.
-		#pragma omp parallel
+		#pragma omp parallel 
 		{
 			int ibx, iby; // Block idx
 			// Recall that we only consider the center blocks. That's where the extra 1 come from
-			#pragma omp for collapse(2)
+			#pragma omp for collapse(2) 
 			for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction				
 				for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction
 					int k, l, m; // private loop variables
 					int block_ID = (ibx * NUM_BLOCKS_PER_DIM) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 					// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
-					
+
+					int p_nobjs=0; // Number of objects within the proposal region of the block
+					int p_objs_idx[AVX_CACHE2]; // The index of objects within the proposal region of the block
+												// Necessary to keep in order to update after the iteration 
+					float p_objs[AVX_CACHE * AVX_CACHE2]; //Array for the object information.
+					int idx_helper[MAX_STARS];
+					// Find out which objects belong to the block
+					// Possibly most expensive step in the proposal part of the algorithm.
+					for (k=0; k<MAX_STARS; k++){
+						if (OBJS_BID[k] == block_ID){
+							p_objs_idx[p_nobjs] = k;
+							p_nobjs++;
+						}
+					}
+
+					// Read in object information
+					#pragma omp simd collapse(2)
+					for (k=0; k<p_nobjs; k++){
+						for (l=0; l<AVX_CACHE; l++){
+							p_objs[AVX_CACHE*k+l] = OBJS[p_objs_idx[k]*AVX_CACHE+l];
+						}
+					}
+
+
+
+
 				} // End of y block loop
 			} // End of x block loop
 		}// End of OMP parallel section
