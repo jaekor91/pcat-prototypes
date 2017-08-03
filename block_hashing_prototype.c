@@ -23,12 +23,13 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 16
+#define NUM_BLOCKS_PER_DIM 32
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 10000 // Number of burn-in to perform
+#define NITER_BURNIN 1000 // Number of burn-in to perform
 #define NITER (1000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
-#define MAX_STARS 102 * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
+#define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define DATA_WIDTH (NUM_BLOCKS_PER_DIM * BLOCK)
 #define IMAGE_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
@@ -88,7 +89,7 @@ int main(int argc, char *argv[])
 		// printf("Time seed %d\n", time_seed);
 
 		// Initialize block ids to -1.
-		time_seed = (int) (time(NULL)) * rand();		
+		time_seed = (int) (time(NULL)) * rand();
 		#pragma omp parallel
 		{	
 			#pragma omp for simd
@@ -127,6 +128,7 @@ int main(int argc, char *argv[])
 		// If the objects are within the proposal region,
 		// then update the corresponding block id array element. 
 		// Otherwise, do nothing.
+		time_seed = (int) (time(NULL)) * rand();				
 		#pragma omp parallel
 		{
 			#pragma omp for
@@ -171,6 +173,8 @@ int main(int argc, char *argv[])
 					int block_ID = (ibx * NUM_BLOCKS_PER_DIM) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 					// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
 
+
+					// ----- Pick objs that lie in the proposal region ----- //
 					int p_nobjs=0; // Number of objects within the proposal region of the block
 					int p_objs_idx[AVX_CACHE2]; // The index of objects within the proposal region of the block
 												// Necessary to keep in order to update after the iteration 
@@ -193,8 +197,17 @@ int main(int argc, char *argv[])
 						}
 					}
 
+					// ----- Implement perturbation ----- //
+					// Draw random numbers to be used
 
 
+					// Propose flux changes
+
+					// Propose position changes
+
+					// Compute dX matrix
+
+					//
 
 				} // End of y block loop
 			} // End of x block loop
