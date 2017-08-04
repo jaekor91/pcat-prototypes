@@ -288,16 +288,6 @@ int main(int argc, char *argv[])
 		            //     # calculate flux distribution prior factor
 		            //     dlogf = np.log(pf/f0)
 		            //     factor = -truealpha*dlogf
-		            // else:
-		            //     # logarithmic, to give bright sources a chance
-		            //     # might be bad to do and not that helpful
-		            //     dlogf = np.random.normal(size=nw).astype(np.float32)*np.float32(0.01)#/np.sqrt(25.))
-		            //     # bounce flux off of fmin
-		            //     abovefmin = np.log(f0/trueminf)
-		            //     oob_flux = (-dlogf > abovefmin)
-		            //     dlogf[oob_flux] = -2*abovefmin[oob_flux] - dlogf[oob_flux]
-		            //     pf = f0*np.exp(dlogf)
-		            //     factor = -truealpha*dlogf
 
 		            // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
 		            // dx = np.random.normal(size=nw).astype(np.float32)*dpos_rms
