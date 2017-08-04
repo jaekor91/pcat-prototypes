@@ -28,8 +28,8 @@
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 5000// Number of burn-in to perform
-#define NITER (5000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 10000// Number of burn-in to perform
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -111,7 +111,6 @@ int main(int argc, char *argv[])
 		for (i=0; i< AVX_CACHE * MAX_STARS; i++){
 			OBJS[i] = -1; // Can't set it to zero since 0 is a valid object number.
 		}				
-
 		time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);		
         #pragma omp parallel 
         {
@@ -137,22 +136,21 @@ int main(int argc, char *argv[])
 		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
 
-		
-		// ----- Main computation begins here ----- //
-		start = omp_get_wtime(); // Timing starts here 
-
 		// Initialize hashing variables	
 		#pragma omp parallel for simd
 		for (i=0; i<MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL; i++){
 			OBJS_IN_BLOCK[i] = -1; // Can't set it to zero since 0 is a valid object number.
-		}
+		}		
 		
+		// ----- Main computation begins here ----- //
+		start = omp_get_wtime(); // Timing starts here 		
+
 		// Set the counter to zero
 		#pragma omp parallel for simd
 		for (i=0; i < max_num_threads * NUM_BLOCKS_TOTAL; i++){
 			BLOCK_COUNT_THREAD[i] = 0;
 		}
-	
+
 		// For each block, allocate an array of length MAXCOUNT * numthreads 
 		// Within each MAXCOUNT chunk, save the indices found by a particular thread.
 		// Determine block id using all the threads.
@@ -245,6 +243,7 @@ int main(int argc, char *argv[])
 						if (tmp>-1){ // if yes, then collect it.
 							p_objs_idx[p_nobjs] = tmp;
 							p_nobjs++;
+							OBJS_IN_BLOCK[start_idx+k] = -1; //This way, the block needs not be reset.
 						}
 					}
 
