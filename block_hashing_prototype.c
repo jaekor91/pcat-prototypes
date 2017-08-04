@@ -23,13 +23,13 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 8 
+#define NUM_BLOCKS_PER_DIM 8
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 10000// Number of burn-in to perform
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 0// Number of burn-in to perform
+#define NITER (1+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -263,9 +263,8 @@ int main(int argc, char *argv[])
 					// 		float y = p_objs[AVX_CACHE*k+1] - BLOCK/2;
 					// 		printf("objs %2d: (x, y) = (%.1f, %.1f)\n", k, x, y);
 					// 	}
+					// 	printf("Number of objects in the block: %d\n", p_nobjs);
 					// }
-					// // Debug: Check number of objects
-					// // printf("Number of objects in the block: %d\n", p_nobjs);
 
 					int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
 
