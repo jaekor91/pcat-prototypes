@@ -29,7 +29,7 @@
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
 #define NITER_BURNIN 5000// Number of burn-in to perform
-#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define NITER (5000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -287,11 +287,6 @@ int main(int argc, char *argv[])
 					// f0 is the current flux
 					// Perturbtation is linear in flux. Normally distributed
 
-					// # bounce flux off of fmin
-					// abovefmin = f0 - trueminf
-					// oob_flux = (-df > abovefmin)
-					// df[oob_flux] = -2*abovefmin[oob_flux] - df[oob_flux]
-					// pf = f0+df
 					// # calculate flux distribution prior factor
 					// dlogf = np.log(pf/f0)
 					// factor = -truealpha*dlogf
@@ -326,8 +321,8 @@ int main(int argc, char *argv[])
 						float f0 = p_objs[(k * AVX_CACHE)+BIT_FLUX];
 						float tmp_f = f0+df;
 						if ((tmp_f) < TRUE_MIN_FLUX){ 
-							// If the proposed flux is below minimum reverse the change.
-							proposed_flux[k] = f0-df;
+							// If the proposed flux is below minimum, bounce off. Why this particular form?
+							proposed_flux[k] = - tmp_f + 2 * TRUE_MIN_FLUX; // f0 - df - 2 * (f0-TRUE_MIN_FLUX);
 						}
 						else{
 							proposed_flux[k] = tmp_f;
