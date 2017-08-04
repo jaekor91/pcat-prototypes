@@ -36,6 +36,13 @@
 #define IMAGE_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 
+#define BIT_FLUX 2
+#define BIT_X 0
+#define BIT_Y 1
+
+#define TRUE_MIN_FLUX 250.0
+#define TRUE_ALPHA 2.00
+
 
 int generate_offset(int min, int max)
 {
@@ -105,8 +112,9 @@ int main(int argc, char *argv[])
 			#pragma omp for
 			for (i=0; i<MAX_STARS; i++){
 				int idx = i*AVX_CACHE;
-				OBJS[idx] = (rand_r(&p_seed) % (IMAGE_WIDTH-BLOCK)) + BLOCK/2;
-				OBJS[idx+1] = (rand_r(&p_seed) % (IMAGE_WIDTH-BLOCK)) + BLOCK/2;
+				OBJS[idx] = (rand_r(&p_seed) % (IMAGE_WIDTH-BLOCK)) + BLOCK/2; // x
+				OBJS[idx+1] = (rand_r(&p_seed) % (IMAGE_WIDTH-BLOCK)) + BLOCK/2; // y
+				OBJS[idx+2] = TRUE_MIN_FLUX * 1.1; // flux.
 			}
 		}
 
@@ -254,7 +262,6 @@ int main(int argc, char *argv[])
 
 					int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
 
-
 					// ----- Implement perturbation ----- //
 					// Draw random numbers to be used. 3 * p_nobjs random normal number for f, x, y.
 					float randn[4 * AVX_CACHE2]; // 4 since the alogrithm below generates two random numbers at a time
@@ -272,22 +279,20 @@ int main(int argc, char *argv[])
 						// printf("%.3f, ", randn[k]); // For debugging. 
 					}
 
+					// Remember
+					// idx_move represents index of objs picked to be perturbed.
+					// nw represents the number of objs being perturbed
+					// f0 is the current flux
+					// Perturbtation is linear in flux. Normally distributed
 
-		            // idx_move = idx_parity(x, y, n, offsetx, offsety, parity_x, parity_y, regsize)
-		            // nw = idx_move.size
-		            // f0 = f.take(idx_move)
-
-		            // if np.random.uniform() < 0.95:
-		            //     # linear in flux
-		            //     df = np.random.normal(size=nw).astype(np.float32)*np.float32(60./np.sqrt(25.))
-		            //     # bounce flux off of fmin
-		            //     abovefmin = f0 - trueminf
-		            //     oob_flux = (-df > abovefmin)
-		            //     df[oob_flux] = -2*abovefmin[oob_flux] - df[oob_flux]
-		            //     pf = f0+df
-		            //     # calculate flux distribution prior factor
-		            //     dlogf = np.log(pf/f0)
-		            //     factor = -truealpha*dlogf
+					// # bounce flux off of fmin
+					// abovefmin = f0 - trueminf
+					// oob_flux = (-df > abovefmin)
+					// df[oob_flux] = -2*abovefmin[oob_flux] - df[oob_flux]
+					// pf = f0+df
+					// # calculate flux distribution prior factor
+					// dlogf = np.log(pf/f0)
+					// factor = -truealpha*dlogf
 
 		            // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
 		            // dx = np.random.normal(size=nw).astype(np.float32)*dpos_rms
@@ -310,14 +315,33 @@ int main(int argc, char *argv[])
 		            // goodmove = True # always True because we bounce off the edges of the image and fmin
 
 
+					// Proposed flux
+					// Note: Proposed fluxes must be above the minimum flux.
+					// To ensure this 
+					float df[AVX_CACHE2];
+					#pragma omp simd
+					for (k=0; k<AVX_CACHE2; k++){
+						df[k] = randn[BIT_FLUX * AVX_CACHE2 + k] * 12.0; // (60./np.sqrt(25.))
+					}
 
-					// Propose flux changes
 
 					// Propose position changes
+					float dx[AVX_CACHE2];
+					float dy[AVX_CACHE2];
+					#pragma omp simd
+					for (k=0; k<AVX_CACHE2; k++){
+						dx[k] = randn[BIT_X * AVX_CACHE2 + k];
+						dy[k] = randn[BIT_Y * AVX_CACHE2 + k];					
+					}
 
-					// Calculate acceptance factor
 
 					// Compute dX matrix incorporating fluxes
+
+
+					// Calculate acceptance factor
+					float factor;
+
+
 
 
 				// printf("End of Block %d computation.\n\n", block_ID);
