@@ -17,7 +17,7 @@
 
 // Define global dimensions
 #define AVX_CACHE 16 // Number of floats that can fit into AVX512
-#define AVX_CACHE2 16 
+#define AVX_CACHE2 16
 #define NPIX_div2 12
 #define MARGIN1 0 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
@@ -26,8 +26,9 @@
 #define NUM_BLOCKS_PER_DIM 8 
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
+#define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 1000// Number of burn-in to perform
+#define NITER_BURNIN 5000// Number of burn-in to perform
 #define NITER (1000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
@@ -36,9 +37,10 @@
 #define IMAGE_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
 
-#define BIT_FLUX 2
+// Bit number of objects within 
 #define BIT_X 0
 #define BIT_Y 1
+#define BIT_FLUX 2
 
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
@@ -224,10 +226,10 @@ int main(int argc, char *argv[])
 
 					// ----- Pick objs that lie in the proposal region ----- //
 					int p_nobjs=0; // Number of objects within the proposal region of the block
-					int p_objs_idx[AVX_CACHE2]; // The index of objects within the proposal region of the block
+					int p_objs_idx[MAXCOUNT_BLOCK]; // The index of objects within the proposal region of the block
 												// Necessary to keep in order to update after the iteration 
-												// We anticipate maximum of AVX_CACHE2 number of objects
-					float p_objs[AVX_CACHE * AVX_CACHE2]; //Array for the object information.
+												// We anticipate maximum of MAXCOUNT number of objects
+					float p_objs[AVX_CACHE * MAXCOUNT_BLOCK]; //Array for the object information.
 
 					// Sift through the relevant regions of OBJS_IN_BLOCK to find objects that belong to the
 					// proposal region of the block.
@@ -264,10 +266,10 @@ int main(int argc, char *argv[])
 
 					// ----- Implement perturbation ----- //
 					// Draw random numbers to be used. 3 * p_nobjs random normal number for f, x, y.
-					float randn[4 * AVX_CACHE2]; // 4 since the alogrithm below generates two random numbers at a time
-
+					float randn[4 * MAXCOUNT_BLOCK]; // 4 since the alogrithm below generates two random numbers at a time
+													// I may be generating way more than necessary.
 					#pragma omp simd
-					for (k=0; k < 2 * AVX_CACHE2; k++){
+					for (k=0; k < 2 * MAXCOUNT_BLOCK; k++){
 						// Using 
 						float u = (rand_r(&p_seed) / (float) RAND_MAX);
 						float v = (rand_r(&p_seed) / (float) RAND_MAX);
@@ -275,7 +277,7 @@ int main(int argc, char *argv[])
 						float cosv = cos(2 * M_PI * v);
 						float sinv = sin(2 * M_PI * v);
 						randn[k] = R * cosv;
-						randn[k+2*AVX_CACHE2] = R * sinv;
+						randn[k+2*MAXCOUNT_BLOCK] = R * sinv;
 						// printf("%.3f, ", randn[k]); // For debugging. 
 					}
 
@@ -317,21 +319,29 @@ int main(int argc, char *argv[])
 
 					// Proposed flux
 					// Note: Proposed fluxes must be above the minimum flux.
-					// To ensure this 
-					float df[AVX_CACHE2];
-					#pragma omp simd
-					for (k=0; k<AVX_CACHE2; k++){
-						df[k] = randn[BIT_FLUX * AVX_CACHE2 + k] * 12.0; // (60./np.sqrt(25.))
+					float proposed_flux[MAXCOUNT_BLOCK];
+					// #pragma omp simd // SIMD is not going to work because of branching.
+					for (k=0; k<p_nobjs; k++){
+						float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * 12.0; // (60./np.sqrt(25.))
+						float f0 = p_objs[(k * AVX_CACHE)+BIT_FLUX];
+						float tmp_f = f0+df;
+						if ((tmp_f) < TRUE_MIN_FLUX){ 
+							// If the proposed flux is below minimum reverse the change.
+							proposed_flux[k] = f0-df;
+						}
+						else{
+							proposed_flux[k] = tmp_f;
+						}
 					}
 
 
 					// Propose position changes
-					float dx[AVX_CACHE2];
-					float dy[AVX_CACHE2];
+					float dx[MAXCOUNT_BLOCK];
+					float dy[MAXCOUNT_BLOCK];
 					#pragma omp simd
-					for (k=0; k<AVX_CACHE2; k++){
-						dx[k] = randn[BIT_X * AVX_CACHE2 + k];
-						dy[k] = randn[BIT_Y * AVX_CACHE2 + k];					
+					for (k=0; k< MAXCOUNT_BLOCK; k++){
+						dx[k] = randn[BIT_X * MAXCOUNT_BLOCK + k];
+						dy[k] = randn[BIT_Y * MAXCOUNT_BLOCK + k];					
 					}
 
 
