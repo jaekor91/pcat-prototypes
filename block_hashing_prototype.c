@@ -45,6 +45,12 @@
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
 
+// Some MACRO functions
+ #define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
 
 int generate_offset(int min, int max)
 {
@@ -281,17 +287,38 @@ int main(int argc, char *argv[])
 						// printf("%.3f, ", randn[k]); // For debugging. 
 					}
 
-					// Remember
-					// idx_move represents index of objs picked to be perturbed.
-					// nw represents the number of objs being perturbed
-					// f0 is the current flux
-					// Perturbtation is linear in flux. Normally distributed
 
-					// # calculate flux distribution prior factor
-					// dlogf = np.log(pf/f0)
-					// factor = -truealpha*dlogf
+					// Proposed flux. Also compute flux distribution prior factor
+					// Note: Proposed fluxes must be above the minimum flux.
+					float proposed_flux[MAXCOUNT_BLOCK];
+					float dpos_rms[MAXCOUNT_BLOCK];
+					float factor = 0;
+					// #pragma omp simd // SIMD is not going to work because of branching.
+					for (k=0; k<p_nobjs; k++){
+						float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * 12.0; // (60./np.sqrt(25.))
+						float f0 = p_objs[(k * AVX_CACHE)+BIT_FLUX];
+						float tmp_f = f0+df;
+						if ((tmp_f) < TRUE_MIN_FLUX){ 
+							// If the proposed flux is below minimum, bounce off. Why this particular form?
+							proposed_flux[k] = -tmp_f + 2 * TRUE_MIN_FLUX; // f0 - df - 2 * (f0-TRUE_MIN_FLUX);
+						}
+						else{
+							proposed_flux[k] = tmp_f;
+						}
+						dpos_rms[k] = 12.0 / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
+						factor -= TRUE_MIN_FLUX * log(proposed_flux[k]/f0); // Accumulating factor
+					}
 
-		            // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
+					// Propose position changes
+					float dx[MAXCOUNT_BLOCK];
+					float dy[MAXCOUNT_BLOCK];
+					#pragma omp simd
+					for (k=0; k< p_nobjs; k++){
+						dx[k] = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms[k];
+						dy[k] = randn[BIT_Y * MAXCOUNT_BLOCK + k] * dpos_rms[k];					
+					}
+
+
 		            // dx = np.random.normal(size=nw).astype(np.float32)*dpos_rms
 		            // dy = np.random.normal(size=nw).astype(np.float32)*dpos_rms
 		            // x0 = x.take(idx_move)
@@ -312,39 +339,10 @@ int main(int argc, char *argv[])
 		            // goodmove = True # always True because we bounce off the edges of the image and fmin
 
 
-					// Proposed flux
-					// Note: Proposed fluxes must be above the minimum flux.
-					float proposed_flux[MAXCOUNT_BLOCK];
-					// #pragma omp simd // SIMD is not going to work because of branching.
-					for (k=0; k<p_nobjs; k++){
-						float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * 12.0; // (60./np.sqrt(25.))
-						float f0 = p_objs[(k * AVX_CACHE)+BIT_FLUX];
-						float tmp_f = f0+df;
-						if ((tmp_f) < TRUE_MIN_FLUX){ 
-							// If the proposed flux is below minimum, bounce off. Why this particular form?
-							proposed_flux[k] = - tmp_f + 2 * TRUE_MIN_FLUX; // f0 - df - 2 * (f0-TRUE_MIN_FLUX);
-						}
-						else{
-							proposed_flux[k] = tmp_f;
-						}
-					}
-
-
-					// Propose position changes
-					float dx[MAXCOUNT_BLOCK];
-					float dy[MAXCOUNT_BLOCK];
-					#pragma omp simd
-					for (k=0; k< MAXCOUNT_BLOCK; k++){
-						dx[k] = randn[BIT_X * MAXCOUNT_BLOCK + k];
-						dy[k] = randn[BIT_Y * MAXCOUNT_BLOCK + k];					
-					}
-
-
 					// Compute dX matrix incorporating fluxes
 
 
-					// Calculate acceptance factor
-					float factor;
+				
 
 
 
