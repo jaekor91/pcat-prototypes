@@ -23,7 +23,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 32
+#define NUM_BLOCKS_PER_DIM 8 
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define INCREMENT 1 // Block loop increment
@@ -218,6 +218,7 @@ int main(int argc, char *argv[])
 					int p_nobjs=0; // Number of objects within the proposal region of the block
 					int p_objs_idx[AVX_CACHE2]; // The index of objects within the proposal region of the block
 												// Necessary to keep in order to update after the iteration 
+												// We anticipate maximum of AVX_CACHE2 number of objects
 					float p_objs[AVX_CACHE * AVX_CACHE2]; //Array for the object information.
 
 					// Sift through the relevant regions of OBJS_IN_BLOCK to find objects that belong to the
@@ -251,18 +252,83 @@ int main(int argc, char *argv[])
 					// // Debug: Check number of objects
 					// // printf("Number of objects in the block: %d\n", p_nobjs);
 
+					int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
+
 
 					// ----- Implement perturbation ----- //
-					// Draw random numbers to be used
+					// Draw random numbers to be used. 3 * p_nobjs random normal number for f, x, y.
+					float randn[4 * AVX_CACHE2]; // 4 since the alogrithm below generates two random numbers at a time
+
+					#pragma omp simd
+					for (k=0; k < 2 * AVX_CACHE2; k++){
+						// Using 
+						float u = (rand_r(&p_seed) / (float) RAND_MAX);
+						float v = (rand_r(&p_seed) / (float) RAND_MAX);
+						float R = sqrt(-2 * log(u));
+						float cosv = cos(2 * M_PI * v);
+						float sinv = sin(2 * M_PI * v);
+						randn[k] = R * cosv;
+						randn[k+2*AVX_CACHE2] = R * sinv;
+						// printf("%.3f, ", randn[k]); // For debugging. 
+					}
+
+
+		            // idx_move = idx_parity(x, y, n, offsetx, offsety, parity_x, parity_y, regsize)
+		            // nw = idx_move.size
+		            // f0 = f.take(idx_move)
+
+		            // if np.random.uniform() < 0.95:
+		            //     # linear in flux
+		            //     df = np.random.normal(size=nw).astype(np.float32)*np.float32(60./np.sqrt(25.))
+		            //     # bounce flux off of fmin
+		            //     abovefmin = f0 - trueminf
+		            //     oob_flux = (-df > abovefmin)
+		            //     df[oob_flux] = -2*abovefmin[oob_flux] - df[oob_flux]
+		            //     pf = f0+df
+		            //     # calculate flux distribution prior factor
+		            //     dlogf = np.log(pf/f0)
+		            //     factor = -truealpha*dlogf
+		            // else:
+		            //     # logarithmic, to give bright sources a chance
+		            //     # might be bad to do and not that helpful
+		            //     dlogf = np.random.normal(size=nw).astype(np.float32)*np.float32(0.01)#/np.sqrt(25.))
+		            //     # bounce flux off of fmin
+		            //     abovefmin = np.log(f0/trueminf)
+		            //     oob_flux = (-dlogf > abovefmin)
+		            //     dlogf[oob_flux] = -2*abovefmin[oob_flux] - dlogf[oob_flux]
+		            //     pf = f0*np.exp(dlogf)
+		            //     factor = -truealpha*dlogf
+
+		            // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
+		            // dx = np.random.normal(size=nw).astype(np.float32)*dpos_rms
+		            // dy = np.random.normal(size=nw).astype(np.float32)*dpos_rms
+		            // x0 = x.take(idx_move)
+		            // y0 = y.take(idx_move)
+		            // px = x0 + dx
+		            // py = y0 + dy
+		            // # bounce off of edges of image
+		            // mask = px < 0
+		            // px[mask] *= -1
+		            // mask = px > (imsz[0] - 1)
+		            // px[mask] *= -1
+		            // px[mask] += 2*(imsz[0] - 1)
+		            // mask = py < 0
+		            // py[mask] *= -1
+		            // mask = py > (imsz[1] - 1)
+		            // py[mask] *= -1
+		            // py[mask] += 2*(imsz[1] - 1)
+		            // goodmove = True # always True because we bounce off the edges of the image and fmin
+
 
 
 					// Propose flux changes
 
 					// Propose position changes
 
-					// Compute dX matrix
+					// Calculate acceptance factor
 
-					//
+					// Compute dX matrix incorporating fluxes
+
 
 				// printf("End of Block %d computation.\n\n", block_ID);
 				} // End of y block loop
