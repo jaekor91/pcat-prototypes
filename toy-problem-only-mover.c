@@ -27,10 +27,11 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 2
+#define NUM_BLOCKS_PER_DIM 3
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
-#define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
+#define MAXCOUNT AVX_CACHE2 // Max number of objects to be "collected" by each thread when computing block id for each object.
+							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
 #define INCREMENT 1 // Block loop increment
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
@@ -38,19 +39,19 @@
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define DEBUG 1 // Set to 1 only when debugging
+#define DEBUG 0 // Set to 1 only when debugging
 #if DEBUG
 	// General strategy
 	// One thread, one block, one iteration
 	// One thread, one block, multiplie iterations
 	// One thread, multiple blocks, multiplie iterations
-	#define NITER 1000
+	#define NITER 100
 	#define NITER_BURNIN 0
-	#define MAX_STARS 1000
+	#define MAX_STARS 500
 	#define BLOCK_ID_DEBUG 2
 #else
-	#define NITER_BURNIN 0// Number of burn-in to perform
-	#define NITER (10+NITER_BURNIN) // Number of iterations
+	#define NITER_BURNIN 1000// Number of burn-in to perform
+	#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #endif 
 
@@ -134,7 +135,7 @@ int main(int argc, char *argv[])
 	// Object array. Each object gets AVX_CACHE space or 16 floats.
 	__attribute__((aligned(64))) float OBJS[AVX_CACHE * MAX_STARS];
 	// Array that tells which objects belong which arrays. See below for usage.
-	__attribute__((aligned(64))) int OBJS_IN_BLOCK[MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL]; 
+	__attribute__((aligned(64))) int OBJS_HASH[MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL]; 
 	// Block counter for each thread
 	__attribute__((aligned(64))) int BLOCK_COUNT_THREAD[max_num_threads * NUM_BLOCKS_TOTAL]; 
 
@@ -155,9 +156,9 @@ int main(int argc, char *argv[])
 		}
 	}
 	// Initialize hashing variable	
-	#pragma omp parallel for simd
-	for (i=0; i<MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL; i++){
-		OBJS_IN_BLOCK[i] = -1; // Can't set it to zero since 0 is a valid object number.
+	#pragma omp parallel for simd shared(OBJS_HASH)
+	for (i=0; i< MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL; i++){
+		OBJS_HASH[i] = -1; // Can't set it to zero since 0 is a valid object number.
 	}	
 
 
@@ -203,13 +204,11 @@ int main(int argc, char *argv[])
 		}
 
 		// ------ Hash objects into blocks ----- //
-		// For each block, allocate an array of length MAXCOUNT * numthreads (OBJS_IN_BLOCK)
+		// For each block, allocate an array of length MAXCOUNT * numthreads (OBJS_HASH)
 		// Within each MAXCOUNT chunk, save the indices found by a particular thread.
-		// Determine block id using all the threads.
-		// Each thread checks out one obj at a time. 
-		// Read in x, y and see if it falls within intended region.
-		// If the objects are within the proposal region,
-		// then update the corresponding block objs array element. 
+		// All the threads take one obj at a time and determine its block id 
+		// given the offset. If the objects are within the proposal region,
+		// then update the corresponding OBJS_HASH array element. 
 		// Otherwise, do nothing.
 		#pragma omp parallel shared(BLOCK_COUNT_THREAD)
 		{
@@ -238,7 +237,7 @@ int main(int argc, char *argv[])
 					(x_in_block < (MARGIN1+MARGIN2+REGION)) & (y_in_block < (MARGIN1+MARGIN2+REGION)))
 				{
 					int b_id = (b_idx * NUM_BLOCKS_PER_DIM) + b_idy; // Compute block id of the object.
-					OBJS_IN_BLOCK[MAXCOUNT * (max_num_threads * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
+					OBJS_HASH[MAXCOUNT * (max_num_threads * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
 					BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]+=1; // Update the counts
 					#if DEBUG
 						if (b_id == BLOCK_ID_DEBUG)
@@ -263,7 +262,7 @@ int main(int argc, char *argv[])
 		// IMPORTANT: X is the row direction and Y is the column direction.
 		time_seed = (int) (time(NULL)) * rand();		
 		int ibx, iby; // Block idx		
-		#pragma omp parallel shared(MODEL, DATA, OBJS_IN_BLOCK)
+		#pragma omp parallel shared(MODEL, DATA, OBJS_HASH)
 		{
 			// Recall that we only consider the center blocks. That's where the extra 1 come from
 			#pragma omp for collapse(2) 
@@ -280,15 +279,15 @@ int main(int argc, char *argv[])
 												// We anticipate maximum of MAXCOUNT_BLOCK number of objects in the region.
 					__attribute__((aligned(64))) float p_objs[AVX_CACHE * MAXCOUNT_BLOCK]; //Array for the object information.
 
-					// Sift through the relevant regions of OBJS_IN_BLOCK to find objects that belong to the
+					// Sift through the relevant regions of OBJS_HASH to find objects that belong to the
 					// proposal region of the block.
 					int start_idx = block_ID * MAXCOUNT * max_num_threads;
 					for (k=0; k < (MAXCOUNT * max_num_threads); k++){
-						int tmp = OBJS_IN_BLOCK[start_idx+k]; // See if an object is deposited.
+						int tmp = OBJS_HASH[start_idx+k]; // See if an object is deposited.
 						if (tmp>-1){ // if yes, then collect it.
 							p_objs_idx[p_nobjs] = tmp;
 							p_nobjs++;
-							OBJS_IN_BLOCK[start_idx+k] = -1; //This way, the block needs not be reset.
+							OBJS_HASH[start_idx+k] = -1; //This way, the block needs not be reset.
 						}
 					}
 
