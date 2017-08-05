@@ -44,9 +44,9 @@
 	// One thread, one block, one iteration
 	// One thread, one block, multiplie iterations
 	// One thread, multiple blocks, multiplie iterations
-	#define NITER 100
+	#define NITER 1000
 	#define NITER_BURNIN 0
-	#define MAX_STARS 500
+	#define MAX_STARS 1000
 	#define BLOCK_ID_DEBUG 2
 #else
 	#define NITER_BURNIN 0// Number of burn-in to perform
@@ -210,7 +210,7 @@ int main(int argc, char *argv[])
 		// Read in x, y and see if it falls within intended region.
 		// If the objects are within the proposal region,
 		// then update the corresponding block objs array element. 
-		// Otherwise, do nothing.		
+		// Otherwise, do nothing.
 		#pragma omp parallel shared(BLOCK_COUNT_THREAD)
 		{
 			int i;
@@ -221,8 +221,10 @@ int main(int argc, char *argv[])
 				// Get x, y of the object.
 				// Offset is for the mesh offset.
 				int idx = i*AVX_CACHE;
-				int x = floor(OBJS[idx+BIT_X] - offset_X - (BLOCK/2));
-				int y = floor(OBJS[idx+BIT_Y] - offset_Y - (BLOCK/2));
+				float x_float = OBJS[idx+BIT_X];
+				float y_float = OBJS[idx+BIT_Y];
+				int x = floor(x_float - offset_X - (BLOCK/2));
+				int y = floor(y_float - offset_Y - (BLOCK/2));
 
 				int b_idx = x / BLOCK;
 				int b_idy = y / BLOCK;
@@ -239,16 +241,20 @@ int main(int argc, char *argv[])
 					OBJS_IN_BLOCK[MAXCOUNT * (max_num_threads * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
 					BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]+=1; // Update the counts
 					#if DEBUG
-						printf("tid: %d\n", t_id);
-						printf("b_id x/y: %d, %d\n", b_idx, b_idy);						
-						printf("OBJS x/y after cut: %d/%d\n", x, y);
-						printf("x/y_in_block: %d, %d\n", x_in_block, y_in_block);										
-						printf("OBJS number: %d\n", i);
-						printf("Block count: %d\n", BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]);					
-						printf("OBJS_BID: %d\n\n", b_id);							
+						if (b_id == BLOCK_ID_DEBUG)
+						{
+							printf("OBJS number: %d\n", i);							
+							printf("OBJS_BID: %d\n", b_id);									
+							printf("Block id x,y: %d, %d\n", b_idx, b_idy);													
+							// printf("tid: %d\n", t_id);
+							printf("Block count: %d\n", BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]);
+							printf("x,y before adjustment: %.1f, %.1f\n", x_float, y_float);
+							printf("x,y after adjustment: %d, %d\n", x, y);
+							printf("x,y in block: %d, %d\n", x_in_block, y_in_block);
+							printf("\n");							
+						}
 					#endif
 				}//	
-
 			}
 		}// End of parallel region
 
@@ -297,16 +303,24 @@ int main(int argc, char *argv[])
 					// Debug: Looking at objects selected for change. Must mach objects
 					#if DEBUG
 						if (block_ID==BLOCK_ID_DEBUG){
-							printf("\nThread/Block id: %3d, %3d\n", t_id, block_ID);
+							printf("*** After collection in the block.\n");
+							printf("BID: %d\n", block_ID);								
 							printf("Number of objects in the block: %d\n", p_nobjs);
-							printf("(x,y) after accounting for offsets: %d, %d\n", offset_X, offset_Y);
 							for (k=0; k<p_nobjs; k++){
-								float x = p_objs[AVX_CACHE*k+BIT_X] - (BLOCK/2) - offset_X;
-								float y = p_objs[AVX_CACHE*k+BIT_Y] - (BLOCK/2) - offset_Y;
-								printf("objs %2d: %.1f, %.1f\n", k, x, y);
-							}
+								float x_float = p_objs[AVX_CACHE*k+BIT_X];
+								float y_float = p_objs[AVX_CACHE*k+BIT_Y];
+								float x = x_float - (BLOCK/2) - offset_X;
+								float y = y_float - (BLOCK/2) - offset_Y;			
+								int x_in_block = x - ibx * BLOCK;
+								int y_in_block = y - iby * BLOCK;								
+								printf("OBJS number: %d\n", p_objs_idx[k]);							
+								printf("Block id x,y: %d, %d\n", ibx, iby);
+								printf("x,y before adjustment: %.1f, %.1f\n", x_float, y_float);
+								printf("x,y after adjustment: %.1f, %.1f\n", x, y);
+								printf("x,y in block: %d, %d\n", x_in_block, y_in_block);							
+								printf("\n");
+							}																	
 						}
-						printf("\n");
 					#endif
 
 					// ----- Gather operation for the current values ----- //
@@ -477,14 +491,14 @@ int main(int argc, char *argv[])
 					// Since the arrays were coalesced
 					p_nobjs *= 2;
 
-					#if DEBUG 
-						if (block_ID == BLOCK_ID_DEBUG){
-							for (k=0; k<p_nobjs; k++){
-								printf("%d, %d\n", ix[k], iy[k]);
-							}
-							printf("Printed all objs.\n\n");
-						}
-					#endif 
+					// #if DEBUG 
+					// 	if (block_ID == BLOCK_ID_DEBUG){
+					// 		for (k=0; k<p_nobjs; k++){
+					// 			printf("%d, %d\n", ix[k], iy[k]);
+					// 		}
+					// 		printf("Printed all objs.\n\n");
+					// 	}
+					// #endif 
 
 
 
@@ -528,13 +542,13 @@ int main(int argc, char *argv[])
 					if ( idx_row > (DATA_WIDTH-BLOCK/2-1)) { l_max = -idx_row+DATA_WIDTH+(BLOCK/2); }
 					if ( idx_col > (DATA_WIDTH-BLOCK/2-1)) { m_max = -idx_col+DATA_WIDTH+(BLOCK/2); }
 
-					#if DEBUG
-						// if (block_ID == BLOCK_ID_DEBUG) { 
-							printf("%4d\n", block_ID);
-							printf("%4d, %4d\n", idx_row, idx_col);
-							printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
-						// }
-					#endif	
+					// #if DEBUG
+					// 	if (block_ID == BLOCK_ID_DEBUG) { 
+					// 		printf("%4d\n", block_ID);
+					// 		printf("%4d, %4d\n", idx_row, idx_col);
+					// 		printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
+					// 	}
+					// #endif	
 
 					for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 						for (m = m_min; m < m_max; m++){
@@ -566,12 +580,12 @@ int main(int argc, char *argv[])
 				    {
 				        xx = ix[istar];
 				        yy = iy[istar];
-				        #if DEBUG
-					        if (block_ID==BLOCK_ID_DEBUG){
-					        	printf("objs %d: %d, %d, %d, %d\n", istar, ix[istar], iy[istar], xx, yy);				        	
-					        }
-				        	printf("\n");					        
-					    #endif
+				     //    #if DEBUG
+					    //     if (block_ID==BLOCK_ID_DEBUG){
+					    //     	printf("objs %d: %d, %d, %d, %d\n", istar, ix[istar], iy[istar], xx, yy);				        	
+					    //     }
+				     //    	printf("\n");					        
+					    // #endif
 				        int idx = xx*BLOCK+yy;
 				        if (hash[idx] != -1) {
 				        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
