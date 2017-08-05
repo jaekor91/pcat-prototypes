@@ -27,7 +27,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 8
+#define NUM_BLOCKS_PER_DIM 4
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define MAXCOUNT AVX_CACHE2 // Max number of objects to be "collected" by each thread when computing block id for each object.
@@ -39,20 +39,20 @@
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define DEBUG 0 // Set to 1 only when debugging
+#define DEBUG 1 // Set to 1 only when debugging
 #if DEBUG
 	// General strategy
 	// One thread, one block, one iteration
 	// One thread, one block, multiplie iterations
 	// One thread, multiple blocks, multiplie iterations
-	#define NITER 100
-	#define NITER_BURNIN 0
-	#define MAX_STARS 500
-	#define BLOCK_ID_DEBUG 2
+	#define NITER 2000
+	#define NITER_BURNIN 1000
+	#define MAX_STARS 1000
+	#define BLOCK_ID_DEBUG 0
 #else
 	#define NITER_BURNIN 1000// Number of burn-in to perform
 	#define NITER (1000+NITER_BURNIN) // Number of iterations
-#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+	#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #endif 
 
 // Bit number of objects within 
@@ -342,9 +342,9 @@ int main(int argc, char *argv[])
 					__attribute__((aligned(64))) float current_x[MAXCOUNT_BLOCK];
 					__attribute__((aligned(64))) float current_y[MAXCOUNT_BLOCK];					
 					for (k=0; k<p_nobjs; k++){
-						current_x[k] = OBJS[p_objs_idx[k]*AVX_CACHE+BIT_X];
-						current_y[k] = OBJS[p_objs_idx[k]*AVX_CACHE+BIT_Y];
-						current_flux[k] = OBJS[p_objs_idx[k]*AVX_CACHE+BIT_FLUX];
+						current_x[k] = p_objs[k*AVX_CACHE+BIT_X];
+						current_y[k] = p_objs[k*AVX_CACHE+BIT_Y];
+						current_flux[k] = p_objs[k*AVX_CACHE+BIT_FLUX];
 					}
 
 					// ------ Draw unit normal random numbers to be used. ------- //
@@ -515,8 +515,6 @@ int main(int argc, char *argv[])
 
 
 
-
-
 					// Step strategy: Read in the current model, calculate the loglike, 
 					// directly insert PSF, calculate loglike again and comapre
 
@@ -649,19 +647,37 @@ int main(int argc, char *argv[])
 				
 					// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
 					// If bigger then undo the addition by subtracting what was added to the model image.						
-					if (flip_coin_biased(0.75)){ // Currently, use flip coin.
+					if (0){ // Currently, use flip coin.
 						// If the proposed model is rejected. Do nothing.
 					}
 					else{
 						// Accept the proposal					
 						idx_row = ibx * BLOCK + offset_X + BLOCK/2; // BLOCK/2 is for the padding.
 						idx_col = iby * BLOCK + offset_Y + BLOCK/2; 
+					 	// Note that since padded region is never considered for loglike calculation,
+						// there is no need worry about them as we update the image.
 						#pragma omp simd
 						for (l=0; l<BLOCK; l++){
 							for (k=0; k<BLOCK; k++){
 								 MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)] = model_proposed[l*BLOCK + k];
 							}
-						}							
+						}
+
+						// // // Update each obj according to the perturbation
+						// p_nobjs = p_nobjs/2; // Only proposal objects gets 
+						// #if DEBUG
+						// 	if (block_ID == BLOCK_ID_DEBUG){
+						// 		printf("Number of stars to be updated: %d\n", p_nobjs);
+						// 	}
+						// #endif 
+						// for (k=0; k < p_nobjs; k++){
+						// 	idx = p_objs_idx[k] * AVX_CACHE;
+						// 	OBJS[idx + BIT_X] = proposed_x[k];
+						// 	OBJS[idx + BIT_Y] = proposed_y[k];
+						// 	OBJS[idx + BIT_FLUX] = proposed_flux[k];								
+						// }						
+
+
 					}// end of proposal accept/reject
 
 
