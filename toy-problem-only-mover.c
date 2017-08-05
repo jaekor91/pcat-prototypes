@@ -23,17 +23,17 @@
 #define NPIX 25 // PSF single dimension
 #define NPIX_div2 12
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
-#define MARGIN1 0 // Margin width of the block
+#define MARGIN1 1 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 8 // Core proposal region 
+#define REGION 6 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_PER_DIM 4
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 10000// Number of burn-in to perform
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 0// Number of burn-in to perform
+#define NITER (10+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -481,11 +481,11 @@ int main(int argc, char *argv[])
 					// if ( (idx_row+BLOCK) > (DATA_WIDTH+BLOCK/2-1)) { l_max = BLOCK - (idx_row+BLOCK-DATA_WIDTH-BLOCK/2+1); }
 					if ( idx_row > (DATA_WIDTH-BLOCK/2-1)) { l_max = -idx_row+DATA_WIDTH+(BLOCK/2); }
 					if ( idx_col > (DATA_WIDTH-BLOCK/2-1)) { m_max = -idx_col+DATA_WIDTH+(BLOCK/2); }
-					// // Debug
-					// if (block_ID == 0) { 
-					// 	printf("%4d, %4d\n", idx_row, idx_col);
-					// 	printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
-					// }					
+					// Debug
+					if (block_ID == 15) { 
+						printf("%4d, %4d\n", idx_row, idx_col);
+						printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
+					}					
 					for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 						for (m = m_min; m < m_max; m++){
 							idx = l*BLOCK+m;
@@ -499,37 +499,36 @@ int main(int argc, char *argv[])
 						b_loglike += loglike_temp[k];
 					}						
 
-					// // ----- Hashing ----- //
-					// // This steps reduces number of PSFs that need to be evaluated.					
-					// __attribute__((aligned(64))) int hash[BLOCK*BLOCK];
-
+					// ----- Hashing ----- //
+					// This steps reduces number of PSFs that need to be evaluated.					
+					__attribute__((aligned(64))) int hash[BLOCK*BLOCK];
 					// Note: Objs may fall out of the inner proposal region. However
 					// it shouldn't go too much out of it. So as long as MARGIN1 is 
 					// 1 or 2, there should be no problem. 
 
-					// #pragma omp simd // Explicit vectorization
-				 //    for (k=0; k<REGION*REGION; k++) { hash[k] = -1; }
-				 //    int jstar = 0; // Number of stars after coalescing.
-					// int istar;
-					// int xx, yy;
-				 //    for (istar = 0; istar < ns; istar++) // This must be a serial operation.
-				 //    {
-				 //        xx = p_X[istar];
-				 //        yy = p_Y[istar];
-				 //        int idx = yy*REGION+xx;
-				 //        if (hash[idx] != -1) {
-				 //        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
-				 //            for (l=0; l<INNER; l++) { p_dX[hash[idx]*INNER+l] += p_dX[istar*INNER+l]; }
-				 //        }
-				 //        else {
-				 //            hash[idx] = jstar;
-				 //            #pragma omp simd // Compiler knows how to unroll.
-				 //            for (l=0; l<INNER; l++) { p_dX[hash[idx]*INNER+l] = p_dX[istar*INNER+l]; }
-				 //            p_X[jstar] = p_X[istar];
-				 //            p_Y[jstar] = p_Y[istar];
-				 //            jstar++;
-				 //        }
-				 //    }
+					#pragma omp simd // Explicit vectorization
+				    for (k=0; k<REGION*REGION; k++) { hash[k] = -1; }
+				    int jstar = 0; // Number of stars after coalescing.
+					int istar;
+					int xx, yy;
+				    for (istar = 0; istar < ns; istar++) // This must be a serial operation.
+				    {
+				        xx = p_X[istar];
+				        yy = p_Y[istar];
+				        int idx = yy*REGION+xx;
+				        if (hash[idx] != -1) {
+				        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
+				            for (l=0; l<INNER; l++) { p_dX[hash[idx]*INNER+l] += p_dX[istar*INNER+l]; }
+				        }
+				        else {
+				            hash[idx] = jstar;
+				            #pragma omp simd // Compiler knows how to unroll.
+				            for (l=0; l<INNER; l++) { p_dX[hash[idx]*INNER+l] = p_dX[istar*INNER+l]; }
+				            p_X[jstar] = p_X[istar];
+				            p_Y[jstar] = p_Y[istar];
+				            jstar++;
+				        }
+				    }
 
 					// // row and col location of the star based on X, Y values.
 					// // Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
