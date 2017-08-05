@@ -27,19 +27,19 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 8
+#define NUM_BLOCKS_PER_DIM 4
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 1000// Number of burn-in to perform
-#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 10000// Number of burn-in to perform
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define DATA_WIDTH (NUM_BLOCKS_PER_DIM * BLOCK)
-#define IMAGE_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
-#define IMAGE_SIZE (IMAGE_WIDTH * IMAGE_WIDTH)
+#define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
+#define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -97,6 +97,7 @@ int main(int argc, char *argv[])
 {	
 
 	// Print basic parameters of the problem.
+	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
 	printf("NITER: %d\n", (NITER-NITER_BURNIN));
 	printf("Block width: %d\n", BLOCK);
 	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
@@ -135,8 +136,8 @@ int main(int argc, char *argv[])
 		#pragma omp for
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i*AVX_CACHE;
-			OBJS[idx] = (rand_r(&p_seed) % (IMAGE_WIDTH-BLOCK)) + BLOCK/2; // x
-			OBJS[idx+1] = (rand_r(&p_seed) % (IMAGE_WIDTH-BLOCK)) + BLOCK/2; // y
+			OBJS[idx] = (rand_r(&p_seed) % (PADDED_DATA_WIDTH-BLOCK)) + BLOCK/2; // x
+			OBJS[idx+1] = (rand_r(&p_seed) % (PADDED_DATA_WIDTH-BLOCK)) + BLOCK/2; // y
 			OBJS[idx+2] = TRUE_MIN_FLUX * 1.1; // flux.
 		}
 	}
@@ -148,7 +149,7 @@ int main(int argc, char *argv[])
 
 
 	// Image DATA, MODEL, design matrix
-	int size_of_DATA = IMAGE_SIZE; 
+	int size_of_DATA = IMAGE_SIZE; // Bigger than data size 
 	int size_of_A = NPIX2 * INNER;
 	__attribute__((aligned(64))) float DATA[size_of_DATA]; // Generate positive test data. 64 bytes aligned.
 	__attribute__((aligned(64))) float MODEL[size_of_DATA]; // Allocate model image. 64 bytes aligned.
@@ -172,7 +173,7 @@ int main(int argc, char *argv[])
 		// The mesh size is the same as the image size. It's shifted in each iteration.
 		// Positive offset corresponds to adding offset_X, offset_Y for getting the 
 		// relevant DATA and MODEL elements but subtracting when computing the block id.		
-		// int offset_X = 0; 
+		// int offset_X = -2; 
 		// int offset_Y = 0; 
 		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
@@ -248,10 +249,10 @@ int main(int argc, char *argv[])
 
 					// ----- Pick objs that lie in the proposal region ----- //
 					int p_nobjs=0; // Number of objects within the proposal region of the block
-					int p_objs_idx[MAXCOUNT_BLOCK]; // The index of objects within the proposal region of the block
+					__attribute__((aligned(64))) int p_objs_idx[MAXCOUNT_BLOCK]; // The index of objects within the proposal region of the block
 												// Necessary to keep in order to update after the iteration 
 												// We anticipate maximum of MAXCOUNT_BLOCK number of objects in the region.
-					float p_objs[AVX_CACHE * MAXCOUNT_BLOCK]; //Array for the object information.
+					__attribute__((aligned(64))) float p_objs[AVX_CACHE * MAXCOUNT_BLOCK]; //Array for the object information.
 
 					// Sift through the relevant regions of OBJS_IN_BLOCK to find objects that belong to the
 					// proposal region of the block.
@@ -288,9 +289,9 @@ int main(int argc, char *argv[])
 
 					// ----- Gather operation for the current values ----- //
 					// For simd computation later.
-					float current_flux[MAXCOUNT_BLOCK];
-					float current_x[MAXCOUNT_BLOCK];
-					float current_y[MAXCOUNT_BLOCK];					
+					__attribute__((aligned(64))) float current_flux[MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) float current_x[MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) float current_y[MAXCOUNT_BLOCK];					
 					for (k=0; k<p_nobjs; k++){
 						current_x[k] = OBJS[p_objs_idx[k]*AVX_CACHE+BIT_X];
 						current_y[k] = OBJS[p_objs_idx[k]*AVX_CACHE+BIT_Y];
@@ -300,7 +301,7 @@ int main(int argc, char *argv[])
 					// ------ Draw unit normal random numbers to be used. ------- //
 					// 3 * p_nobjs random normal number for f, x, y.
 					int p_seed = time_seed * (1+t_id); // Note that this seeding is necessary					
-					float randn[4 * MAXCOUNT_BLOCK]; // 4 since the alogrithm below generates two random numbers at a time
+					__attribute__((aligned(64))) float randn[4 * MAXCOUNT_BLOCK]; // 4 since the alogrithm below generates two random numbers at a time
 													// I may be generating way more than necessary.
 					#pragma omp simd
 					for (k=0; k < 2 * MAXCOUNT_BLOCK; k++){
@@ -317,9 +318,9 @@ int main(int argc, char *argv[])
 
 					// ----- Generate proposed values ------ //
 					// Note: Proposed fluxes must be above the minimum flux.
-					float proposed_flux[MAXCOUNT_BLOCK];
-					float proposed_x[MAXCOUNT_BLOCK];
-					float proposed_y[MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) float proposed_flux[MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) float proposed_x[MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) float proposed_y[MAXCOUNT_BLOCK];
 					#pragma omp simd
 					for (k=0; k<p_nobjs; k++){
 						// Flux
@@ -343,8 +344,8 @@ int main(int argc, char *argv[])
 							proposed_x[k] *= -1;
 						}
 						else{
-							if (px > IMAGE_WIDTH-1){
-								proposed_x[k] = 2 * (IMAGE_WIDTH-1) - px;
+							if (px > PADDED_DATA_WIDTH-1){
+								proposed_x[k] = 2 * (PADDED_DATA_WIDTH-1) - px;
 							}
 						}
 
@@ -352,8 +353,8 @@ int main(int argc, char *argv[])
 							proposed_y[k] *= -1;
 						}
 						else{
-							if (py > IMAGE_WIDTH-1){
-								proposed_y[k] = 2 * (IMAGE_WIDTH-1) - px;
+							if (py > PADDED_DATA_WIDTH-1){
+								proposed_y[k] = 2 * (PADDED_DATA_WIDTH-1) - px;
 							}
 						}									
 					}// End of x,y bouncing
@@ -365,10 +366,10 @@ int main(int argc, char *argv[])
 					}
 
 					// ----- Compute dX matrix for current and proposed, incorporating flux ----- //
-					int current_ix[MAXCOUNT_BLOCK];
-					int proposed_ix[MAXCOUNT_BLOCK];
-					int current_iy[MAXCOUNT_BLOCK];
-					int proposed_iy[MAXCOUNT_BLOCK];					
+					__attribute__((aligned(64))) int current_ix[MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) int proposed_ix[MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) int current_iy[MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) int proposed_iy[MAXCOUNT_BLOCK];					
 					#pragma omp simd
 					for (k=0; k< p_nobjs; k++){
 						current_ix[k] = ceil(proposed_x[k]);
@@ -378,8 +379,8 @@ int main(int argc, char *argv[])
 					} // end of ix, iy computation
 					
 					// For vectorization, compute dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] and transpose to dX [MAXCOUNT, AVX_CACHE2]
-					float current_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK]; 
-					float proposed_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) float current_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK]; 
+					__attribute__((aligned(64))) float proposed_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK];
 
 					#pragma omp simd
 					for (k=0; k < p_nobjs; k++){
@@ -430,8 +431,8 @@ int main(int argc, char *argv[])
 					} // end of dX computation 
 					
 					// Transposing the matrices: dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] to dX [MAXCOUNT, AVX_CACHE2]
-					float current_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
-					float proposed_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) float current_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
+					__attribute__((aligned(64))) float proposed_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
 					for (k=0; k<p_nobjs; k++){
 						for (l=0; l<INNER; l++){
 							current_dX[k*AVX_CACHE2+l] = current_dX_T[MAXCOUNT_BLOCK*l+k];
@@ -446,15 +447,18 @@ int main(int argc, char *argv[])
 					// ------ Transfer data and model for the block ----- //
 					__attribute__((aligned(64))) float model_proposed[BLOCK * BLOCK];
 					__attribute__((aligned(64))) float data[BLOCK * BLOCK];
+
 					int idx_row = ibx * BLOCK + offset_X + BLOCK/2; // BLOCK/2 is for the padding.
-					int idx_col = iby * BLOCK + offset_Y + BLOCK/2;						
+					int idx_col = iby * BLOCK + offset_Y + BLOCK/2;
+
 					#pragma omp simd
 					for (l=0; l<BLOCK; l++){						
 						for (k=0; k<BLOCK; k++){
-							model_proposed[l*BLOCK + k] = MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)];
-							data[l*BLOCK + k] = DATA[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)];								
+							model_proposed[l*BLOCK + k] = MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];
+							data[l*BLOCK + k] = DATA[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];								
 						}
-					} 
+					}
+
 
 					// ----- Compute the original likelihood based on the current model. ----- //
 					__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];					
@@ -464,16 +468,26 @@ int main(int argc, char *argv[])
 					#pragma omp simd // Check whether SIMD makes this faster
 					for (k=0; k<AVX_CACHE; k++){
 						loglike_temp[k] = 0;
-					}						
+					}
 
 					int idx;
-					int l_min, lmax, m_min, m_max;
-					if (){
-						//
-					}
-					#pragma omp simd
-					for (l =0; l < BLOCK; l++){ // 32 // Row index
-						for (m=0; m < BLOCK; m++){
+					// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
+					int l_min = 0;
+					int l_max = BLOCK;
+					int m_min = 0;
+					int m_max = BLOCK;
+					if (idx_row < BLOCK/2) { l_min = BLOCK/2 - idx_row;}
+					if (idx_col < BLOCK/2) { m_min = BLOCK/2 - idx_col;}
+					// if ( (idx_row+BLOCK) > (DATA_WIDTH+BLOCK/2-1)) { l_max = BLOCK - (idx_row+BLOCK-DATA_WIDTH-BLOCK/2+1); }
+					if ( idx_row > (DATA_WIDTH-BLOCK/2-1)) { l_max = -idx_row+DATA_WIDTH+(BLOCK/2); }
+					if ( idx_col > (DATA_WIDTH-BLOCK/2-1)) { m_max = -idx_col+DATA_WIDTH+(BLOCK/2); }
+					// // Debug
+					// if (block_ID == 0) { 
+					// 	printf("%4d, %4d\n", idx_row, idx_col);
+					// 	printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
+					// }					
+					for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
+						for (m = m_min; m < m_max; m++){
 							idx = l*BLOCK+m;
 							// Poisson likelihood
 							float f = log(model_proposed[idx]);
@@ -481,7 +495,6 @@ int main(int argc, char *argv[])
 							loglike_temp[m] += g - model_proposed[idx];
 						}
 					}
-					// Sum AVX_CACHE number
 					for (k=0; k<AVX_CACHE; k++){
 						b_loglike += loglike_temp[k];
 					}						
@@ -572,7 +585,7 @@ int main(int argc, char *argv[])
 					// 	#pragma omp simd
 					// 	for (l=0; l<BLOCK; l++){
 					// 		for (k=0; k<BLOCK; k++){
-					// 			 MODEL[(idx_row+l)*IMAGE_WIDTH + (idx_col+k)] = model_proposed[l*BLOCK + k];
+					// 			 MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)] = model_proposed[l*BLOCK + k];
 					// 		}
 					// 	}							
 					// }// end of proposal accept/reject
