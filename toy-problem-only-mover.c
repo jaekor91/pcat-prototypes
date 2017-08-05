@@ -34,7 +34,7 @@
 #define INCREMENT 1 // Block loop increment
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
-#define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 5 //(STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define DATA_WIDTH (NUM_BLOCKS_PER_DIM * BLOCK)
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
@@ -44,8 +44,8 @@
 	#define NITER 1
 	#define NITER_BURNIN 0
 #else
-	#define NITER_BURNIN 100// Number of burn-in to perform
-	#define NITER (100+NITER_BURNIN) // Number of iterations
+	#define NITER_BURNIN 1000// Number of burn-in to perform
+	#define NITER (1000+NITER_BURNIN) // Number of iterations
 #endif 
 
 // Bit number of objects within 
@@ -143,9 +143,9 @@ int main(int argc, char *argv[])
 		#pragma omp for
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i*AVX_CACHE;
-			OBJS[idx] = (rand_r(&p_seed) % DATA_WIDTH) + BLOCK/2; // x
-			OBJS[idx+1] = (rand_r(&p_seed) % DATA_WIDTH) + BLOCK/2; // y
-			OBJS[idx+2] = TRUE_MIN_FLUX * 1.1; // flux.
+			OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + BLOCK/2; // x
+			OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + BLOCK/2; // y
+			OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // flux.
 		}
 	}
 	// Initialize hashing variable	
@@ -183,7 +183,9 @@ int main(int argc, char *argv[])
 		// int offset_Y = 0; 
 		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
-		// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
+		#if DEBUG
+			printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
+		#endif
 	
 
 		// ------ Set the counter to zero ------ //
@@ -226,13 +228,14 @@ int main(int argc, char *argv[])
 					int b_id = (b_idx * NUM_BLOCKS_PER_DIM) + b_idy; // Compute block id of the object.
 					OBJS_IN_BLOCK[MAXCOUNT * (max_num_threads * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
 					BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]+=1; // Update the counts
-					// // For debugging
-					// printf("OBJS x/y after cut: %d/%d\n", x, y);								
-					// printf("OBJS number: %d\n", i);
-					// printf("Block count: %d\n", BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]);					
-					// printf("b_id x/y: %d, %d\n", b_idx, b_idy);
-					// printf("x/y_in_block: %d, %d\n", x_in_block, y_in_block);				
-					// printf("OBJS_BID: %d\n\n", b_id);							
+					// #if DEBUG
+					// 	printf("OBJS x/y after cut: %d/%d\n", x, y);								
+					// 	printf("OBJS number: %d\n", i);
+					// 	printf("Block count: %d\n", BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]);					
+					// 	printf("b_id x/y: %d, %d\n", b_idx, b_idy);
+					// 	printf("x/y_in_block: %d, %d\n", x_in_block, y_in_block);				
+					// 	printf("OBJS_BID: %d\n\n", b_id);							
+					// #endif
 				}//	
 
 			}
@@ -280,18 +283,19 @@ int main(int argc, char *argv[])
 						}
 					}
 
-					// // Debug: Looking at objects selected for change. Must mach objects
-					// // identified up-stream
-					// if (block_ID==0){
-					// 	printf("\nThread/Block id: %3d, %3d\n", t_id, block_ID);
-					// 	printf("Number of objects in the block: %d\n", p_nobjs);
-					// 	printf("(x,y) after accounting for offsets: %d, %d\n", offset_X, offset_Y);
-					// 	for (k=0; k<p_nobjs; k++){
-					// 		float x = p_objs[AVX_CACHE*k] - BLOCK/2 - offset_X;
-					// 		float y = p_objs[AVX_CACHE*k+1] - BLOCK/2 - offset_Y;
-					// 		printf("objs %2d: %.1f, %.1f\n", k, x, y);
-					// 	}
-					// }
+					// Debug: Looking at objects selected for change. Must mach objects
+					#if DEBUG
+						if (block_ID==0){
+							printf("\nThread/Block id: %3d, %3d\n", t_id, block_ID);
+							printf("Number of objects in the block: %d\n", p_nobjs);
+							printf("(x,y) after accounting for offsets: %d, %d\n", offset_X, offset_Y);
+							for (k=0; k<p_nobjs; k++){
+								float x = p_objs[AVX_CACHE*k+BIT_X] - BLOCK/2 - offset_X;
+								float y = p_objs[AVX_CACHE*k+BIT_Y] - BLOCK/2 - offset_Y;
+								printf("objs %2d: %.1f, %.1f\n", k, x, y);
+							}
+						}
+					#endif
 
 					// ----- Gather operation for the current values ----- //
 					// For simd computation later.
