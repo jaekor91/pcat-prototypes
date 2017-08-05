@@ -16,7 +16,7 @@
 #include <sys/mman.h>
 
 // Define global dimensions
-#define AVX_CACHE 16 // Number of floats that can fit into AVX512
+#define AVX_CACHE 16 
 #define AVX_CACHE2 16
 #define NPIX_div2 12
 #define INNER 10
@@ -30,7 +30,7 @@
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
 #define NITER_BURNIN 10000// Number of burn-in to perform
-#define NITER (10000+NITER_BURNIN) // Number of iterations
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
 	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
 	printf("Data width: %d\n", DATA_WIDTH);
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
-	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM);
+	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_TOTAL);
 	printf("MAX_STARS: %d\n", MAX_STARS);	
 	int stack_size = kmp_get_stacksize_s() / 1e06;
 	printf("Stack size being used: %dMB\n", stack_size);	
@@ -93,9 +93,9 @@ int main(int argc, char *argv[])
 	// Object array. Each object gets AVX_CACHE space or 16 floats.
 	__attribute__((aligned(64))) float OBJS[AVX_CACHE * MAX_STARS];
 	// Array that tells which objects belong which arrays. See below for usage.
-	__attribute__((aligned(64))) int OBJS_IN_BLOCK[MAXCOUNT * max_num_threads * NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM]; 
+	__attribute__((aligned(64))) int OBJS_IN_BLOCK[MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL]; 
 	// Block counter for each thread
-	__attribute__((aligned(64))) int BLOCK_COUNT_THREAD[max_num_threads * NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM]; 
+	__attribute__((aligned(64))) int BLOCK_COUNT_THREAD[max_num_threads * NUM_BLOCKS_TOTAL]; 
 
 
 	double start, end, dt, dt_per_iter; // For timing purpose.
@@ -116,10 +116,11 @@ int main(int argc, char *argv[])
 		for (i=0; i< AVX_CACHE * MAX_STARS; i++){
 			OBJS[i] = -1; // Can't set it to zero since 0 is a valid object number.
 		}				
+
 		time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);		
         #pragma omp parallel 
         {
-			// Generate (in parallel the positions of) each object.
+			// Initialize objects array
 			int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
 			#pragma omp for
 			for (i=0; i<MAX_STARS; i++){
@@ -165,7 +166,7 @@ int main(int argc, char *argv[])
 		// then update the corresponding block objs array element. 
 		// Otherwise, do nothing.
 
-		#pragma omp parallel shared(BLOCK_COUNT_THREAD)
+		#pragma omp parallel //shared(BLOCK_COUNT_THREAD)
 		{
 			int i;
 			int t_id = omp_get_thread_num(); // Get thread number			
@@ -231,7 +232,7 @@ int main(int argc, char *argv[])
 					int k, l, m; // private loop variables
 					int block_ID = (ibx * NUM_BLOCKS_PER_DIM) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 					// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
-
+					int t_id = omp_get_thread_num();
 
 					// ----- Pick objs that lie in the proposal region ----- //
 					int p_nobjs=0; // Number of objects within the proposal region of the block
@@ -262,13 +263,15 @@ int main(int argc, char *argv[])
 
 					// // Debug: Looking at objects selected for change. Must mach objects
 					// // identified up-stream
-					// if (block_ID == 160){
-					// 	for (k=0; k<p_nobjs; k++){
-					// 		float x = p_objs[AVX_CACHE*k] - BLOCK/2;
-					// 		float y = p_objs[AVX_CACHE*k+1] - BLOCK/2;
-					// 		printf("objs %2d: (x, y) = (%.1f, %.1f)\n", k, x, y);
-					// 	}
+					// if (block_ID==60){
+					// 	printf("\nThread/Block id: %3d, %3d\n", t_id, block_ID);
 					// 	printf("Number of objects in the block: %d\n", p_nobjs);
+					// 	printf("(x,y) after accounting for offsets: %d, %d\n", offset_X, offset_Y);
+					// 	for (k=0; k<p_nobjs; k++){
+					// 		float x = p_objs[AVX_CACHE*k] - BLOCK/2 - offset_X;
+					// 		float y = p_objs[AVX_CACHE*k+1] - BLOCK/2 - offset_Y;
+					// 		printf("objs %2d: %.1f, %.1f\n", k, x, y);
+					// 	}
 					// }
 
 
@@ -284,7 +287,7 @@ int main(int argc, char *argv[])
 
 					// ----- Implement perturbation ----- //
 					// Draw random numbers to be used. 3 * p_nobjs random normal number for f, x, y.
-					int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary					
+					int p_seed = time_seed * (1+t_id); // Note that this seeding is necessary					
 					float randn[4 * MAXCOUNT_BLOCK]; // 4 since the alogrithm below generates two random numbers at a time
 													// I may be generating way more than necessary.
 					#pragma omp simd
