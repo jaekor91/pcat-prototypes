@@ -41,6 +41,8 @@
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
+#define DEBUG 1 // Set to 1 only when debugging
+
 // Bit number of objects within 
 #define BIT_X 0
 #define BIT_Y 1
@@ -136,8 +138,8 @@ int main(int argc, char *argv[])
 		#pragma omp for
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i*AVX_CACHE;
-			OBJS[idx] = (rand_r(&p_seed) % (PADDED_DATA_WIDTH-BLOCK)) + BLOCK/2; // x
-			OBJS[idx+1] = (rand_r(&p_seed) % (PADDED_DATA_WIDTH-BLOCK)) + BLOCK/2; // y
+			OBJS[idx] = (rand_r(&p_seed) % DATA_WIDTH) + BLOCK/2; // x
+			OBJS[idx+1] = (rand_r(&p_seed) % DATA_WIDTH) + BLOCK/2; // y
 			OBJS[idx+2] = TRUE_MIN_FLUX * 1.1; // flux.
 		}
 	}
