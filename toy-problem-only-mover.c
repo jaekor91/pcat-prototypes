@@ -27,7 +27,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 3
+#define NUM_BLOCKS_PER_DIM 8
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define MAXCOUNT AVX_CACHE2 // Max number of objects to be "collected" by each thread when computing block id for each object.
@@ -83,6 +83,20 @@ int generate_offset(int min, int max)
 		i = (rand() % diff) + min;
 	}
 	return i;	
+}
+
+int flip_coin_biased(float up_fraction){
+	// Generate 0 or 1 randomly.
+	float decision_point = RAND_MAX * (1-up_fraction);
+	int coin;
+	int x = rand();
+	if (x>decision_point){
+		coin = 1;
+	}
+	else{
+		coin = 0;
+	}
+	return coin;
 }
 
 
@@ -548,7 +562,7 @@ int main(int argc, char *argv[])
 					// 		printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
 					// 	}
 					// #endif	
-
+					#pragma omp simd
 					for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 						for (m = m_min; m < m_max; m++){
 							idx = l*BLOCK+m;
@@ -579,12 +593,6 @@ int main(int argc, char *argv[])
 				    {
 				        xx = ix[istar];
 				        yy = iy[istar];
-				     //    #if DEBUG
-					    //     if (block_ID==BLOCK_ID_DEBUG){
-					    //     	printf("objs %d: %d, %d, %d, %d\n", istar, ix[istar], iy[istar], xx, yy);				        	
-					    //     }
-				     //    	printf("\n");					        
-					    // #endif
 				        int idx = xx*BLOCK+yy;
 				        if (hash[idx] != -1) {
 				        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
@@ -600,65 +608,61 @@ int main(int argc, char *argv[])
 				        }
 				    }
 
-					// // row and col location of the star based on X, Y values.
-					// // Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
-					// // Calculate PSF and then add to model proposed
-					// for (k=0; k<jstar; k++){
-					// 	idx_row = 15;// ix[k]; // Note that ix and iy are already within block position.
-					// 	idx_col = 15; //iy[k];
-					// 	printf("%d, %d\n", idx_row, idx_col);
-					// 	#pragma omp simd
-					// 	for (l=0; l<NPIX2; l++){
-					// 		for (m=0; m<INNER; m++){
-					// 			// AVX_CACHE_VERSION
-					// 			model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK + (idx_col+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-					// 		} 
-					// 	}// End of PSF calculation for K-th star
-					// }
+					// row and col location of the star based on X, Y values.
+					// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
+					// Calculate PSF and then add to model proposed
+					for (k=0; k<jstar; k++){
+						idx_row = ix[k]; // Note that ix and iy are already within block position.
+						idx_col = iy[k];
+						#pragma omp simd
+						for (l=0; l<NPIX2; l++){
+							for (m=0; m<INNER; m++){
+								// AVX_CACHE_VERSION
+								model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK + (idx_col+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+							} 
+						}// End of PSF calculation for K-th star
+					}
 
 
-					// // // ----- Compute the new likelihood ----- //
-					// #pragma omp simd // Check whether SIMD makes this faster
-					// for (k=0; k<AVX_CACHE; k++){
-					// 	loglike_temp[k] = 0;
-					// }						
+					// // ----- Compute the new likelihood ----- //
+					#pragma omp simd // Check whether SIMD makes this faster
+					for (k=0; k<BLOCK; k++){
+						loglike_temp[k] = 0;
+					}						
 
-					// //simd reduction
-					// #pragma omp simd													
-					// for (l=0; l < BLOCK; l++){ // 32
-					// 	for (m=0; m < BLOCK; m++){
-					// 		idx = l*BLOCK+m;
-					// 		// Compiler knows how to break this expression down
-					// 		// Gaussian likelihood
-					// 		// loglike_temp[m] += (model_proposed[idx]-data[idx])*(model_proposed[idx]-data[idx]);
-					// 		// Poisson likelihood
-					// 		float f = log(model_proposed[idx]);
-					// 		float g = f * data[idx];
-					// 		loglike_temp[m] += g - model_proposed[idx];
-					// 	}
-					// }
-					// // Sum AVX_CACHE number
-					// for (k=0; k<AVX_CACHE; k++){
-					// 	p_loglike += loglike_temp[k];
-					// }						
+					#pragma omp simd
+					for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
+						for (m = m_min; m < m_max; m++){
+							idx = l*BLOCK+m;
+							// Poisson likelihood
+							float tmp = model_proposed[idx];
+							float f = log(tmp);
+							float g = f * data[idx];
+							loglike_temp[m] += g - tmp;
+						}
+					}					
+					for (k=0; k<BLOCK; k++){
+						p_loglike += loglike_temp[k];
+					}						
 
+					
 				
-					// // ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
-					// // If bigger then undo the addition by subtracting what was added to the model image.						
-					// if (flip_coin_biased(0.75)){ // Currently, use flip coin.
-					// 	// If the proposed model is rejected. Do nothing.
-					// }
-					// else{
-					// 	// Accept the proposal					
-					// 	idx_row = ibx * BLOCK + offset_X + BLOCK/2; // BLOCK/2 is for the padding.
-					// 	idx_col = iby * BLOCK + offset_Y + BLOCK/2; 
-					// 	#pragma omp simd
-					// 	for (l=0; l<BLOCK; l++){
-					// 		for (k=0; k<BLOCK; k++){
-					// 			 MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)] = model_proposed[l*BLOCK + k];
-					// 		}
-					// 	}							
-					// }// end of proposal accept/reject
+					// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
+					// If bigger then undo the addition by subtracting what was added to the model image.						
+					if (flip_coin_biased(0.75)){ // Currently, use flip coin.
+						// If the proposed model is rejected. Do nothing.
+					}
+					else{
+						// Accept the proposal					
+						idx_row = ibx * BLOCK + offset_X + BLOCK/2; // BLOCK/2 is for the padding.
+						idx_col = iby * BLOCK + offset_Y + BLOCK/2; 
+						#pragma omp simd
+						for (l=0; l<BLOCK; l++){
+							for (k=0; k<BLOCK; k++){
+								 MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)] = model_proposed[l*BLOCK + k];
+							}
+						}							
+					}// end of proposal accept/reject
 
 
 				// printf("End of Block %d computation.\n\n", block_ID);
