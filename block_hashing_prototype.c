@@ -50,6 +50,10 @@
    ({ __typeof__ (a) _a = (a); \
        __typeof__ (b) _b = (b); \
      _a > _b ? _a : _b; })
+#define min(a,b) \
+    ({ typeof (a) _a = (a);    \
+	typeof (b) _b = (b);   \
+        _a < _b ? _a : _b; })   
 
 
 int generate_offset(int min, int max)
@@ -348,17 +352,71 @@ int main(int argc, char *argv[])
 					}
 
 					// Compute dX matrix for current and proposed. Incorporate flux changes.
-					float current_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
-					float proposed_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
-
-					ix = np.ceil(x).astype(np.int32)
-			        dx = ix - x
-			        iy = np.ceil(y).astype(np.int32)
-			        dy = iy - y
-
-			        dd = np.column_stack((np.full(nstar, 1., dtype=np.float32), dx, dy, dx*dx, dx*dy, dy*dy, dx*dx*dx, dx*dx*dy, dx*dy*dy, dy*dy*dy)).astype(np.float32) * f[:, None]
-
+					int current_ix[MAXCOUNT_BLOCK];
+					int proposed_ix[MAXCOUNT_BLOCK];
+					int current_iy[MAXCOUNT_BLOCK];
+					int proposed_iy[MAXCOUNT_BLOCK];					
+					#pragma omp simd
+					for (k=0; k< p_nobjs; k++){
+						// Calculate dx, dy
+						current_ix[k] = ceil(proposed_x[k]);
+						current_iy[k] = ceil(proposed_y[k]);
+						proposed_ix[k] = ceil(current_x[k]);
+						proposed_iy[k] = ceil(current_y[k]);
+					}					
 					
+					// For vectorization, compute dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] and transpose to dX [MAXCOUNT, AVX_CACHE2]
+					float current_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK]; 
+					float proposed_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK];
+
+					#pragma omp simd
+					for (k=0; k < p_nobjs; k++){
+						float px = proposed_x[k];
+						float py = proposed_y[k];
+						float cx = current_x[k];
+						float cy = current_y[k];
+						// Calculate dx, dy
+						float dpx = proposed_ix[k]-px;
+						float dpy = proposed_iy[k]-py;
+						float dcx = current_ix[k]-cx;
+						float dcy = current_iy[k]-cy;
+						// Compute dX
+						current_dX_T[k] = 1; // 1
+						proposed_dX_T[k] = 1; //
+						// dx
+						current_dX_T[MAXCOUNT_BLOCK + k] = dcx; 
+						proposed_dX_T[MAXCOUNT_BLOCK + k] = dpx; 
+						// dy
+						current_dX_T[MAXCOUNT_BLOCK * 2 + k] = dcy; 
+						proposed_dX_T[MAXCOUNT_BLOCK * 2+ k] = dpy;
+						// dx*dx
+						current_dX_T[MAXCOUNT_BLOCK * 3 + k] = dcx * dcx; 
+						proposed_dX_T[MAXCOUNT_BLOCK * 3+ k] = dpx * dpx;
+						// dx*dy
+						current_dX_T[MAXCOUNT_BLOCK * 4 + k] = dcx * dcy; 
+						proposed_dX_T[MAXCOUNT_BLOCK * 4+ k] = dpx * dpy;
+						// dy*dy
+						current_dX_T[MAXCOUNT_BLOCK * 5 + k] = dcy * dcy; 
+						proposed_dX_T[MAXCOUNT_BLOCK * 5+ k] = dpy * dpy;
+						// dx*dx*dx
+						current_dX_T[MAXCOUNT_BLOCK * 6 + k] = dcx * dcx * dcx; 
+						proposed_dX_T[MAXCOUNT_BLOCK * 6+ k] = dpx * dpx * dpx;
+						// dx*dx*dy
+						current_dX_T[MAXCOUNT_BLOCK * 7 + k] = dcx * dcx * dcy; 
+						proposed_dX_T[MAXCOUNT_BLOCK * 7+ k] = dpx * dpx * dpy;
+						// dx*dy*dy
+						current_dX_T[MAXCOUNT_BLOCK * 8 + k] = dcx * dcy * dcy;
+						proposed_dX_T[MAXCOUNT_BLOCK * 8+ k] = dpx * dpy * dpy;
+						// dy*dy*dy
+						current_dX_T[MAXCOUNT_BLOCK * 9 + k] = dcy * dcy * dcy;
+						proposed_dX_T[MAXCOUNT_BLOCK * 9+ k] = dcy * dcy * dcy;
+					}
+					
+
+
+					// float current_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
+					// float proposed_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
+
 
 				// printf("End of Block %d computation.\n\n", block_ID);
 				} // End of y block loop
