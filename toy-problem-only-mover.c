@@ -177,24 +177,23 @@ int main(int argc, char *argv[])
 		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
-		
-		// ----- Main computation begins here ----- //
+	
 
-		// Set the counter to zero
+		// ------ Set the counter to zero ------ //
 		#pragma omp parallel for simd
 		for (i=0; i < max_num_threads * NUM_BLOCKS_TOTAL; i++){
 			BLOCK_COUNT_THREAD[i] = 0;
 		}
 
-		// For each block, allocate an array of length MAXCOUNT * numthreads 
+		// ------ Hash objects into blocks ----- //
+		// For each block, allocate an array of length MAXCOUNT * numthreads (OBJS_IN_BLOCK)
 		// Within each MAXCOUNT chunk, save the indices found by a particular thread.
 		// Determine block id using all the threads.
 		// Each thread checks out one obj at a time. 
 		// Read in x, y and see if it falls within intended region.
 		// If the objects are within the proposal region,
 		// then update the corresponding block objs array element. 
-		// Otherwise, do nothing.
-
+		// Otherwise, do nothing.		
 		#pragma omp parallel //shared(BLOCK_COUNT_THREAD)
 		{
 			int i;
@@ -220,9 +219,6 @@ int main(int argc, char *argv[])
 					int b_id = (b_idx * NUM_BLOCKS_PER_DIM) + b_idy; // Compute block id of the object.
 					OBJS_IN_BLOCK[MAXCOUNT * (max_num_threads * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
 					BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]+=1; // Update the counts
-					// Caculate the block index
-					// OBJS_BID[i] = (b_idx * NUM_BLOCKS_PER_DIM) + b_idy;					
-
 					// // For debugging
 					// printf("OBJS x/y after cut: %d/%d\n", x, y);								
 					// printf("OBJS number: %d\n", i);
@@ -232,20 +228,8 @@ int main(int argc, char *argv[])
 					// printf("OBJS_BID: %d\n\n", b_id);							
 				}//	
 
-			}// End of parallel region
-		}// End of BID assign parallel region
-
-		// // Debug: How many stars were collected in total?
-		// int counter = 0;
-		// int i;
-		// for (i=0; i<MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL; i++){
-		// 	if (OBJS_IN_BLOCK[i]>-1){
-		// 		// printf("%d\n", OBJS_IN_BLOCK[i]);
-		// 		counter++;
-		// 	}
-		// }
-		// printf("\nCounter value: %d\n", counter);
-
+			}
+		}// End of parallel region
 
 		// ----- Model evaluation, followed by acceptance or rejection. ----- //
 		// Iterating through all the blocks.
@@ -260,14 +244,13 @@ int main(int argc, char *argv[])
 				for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction
 					int k, l, m; // private loop variables
 					int block_ID = (ibx * NUM_BLOCKS_PER_DIM) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
-					// printf("Block ID: %3d, (bx, by): %3d, %3d\n", block_ID, ibx, iby); // Used to check whether all the loops are properly addressed.
 					int t_id = omp_get_thread_num();
 
 					// ----- Pick objs that lie in the proposal region ----- //
 					int p_nobjs=0; // Number of objects within the proposal region of the block
 					int p_objs_idx[MAXCOUNT_BLOCK]; // The index of objects within the proposal region of the block
 												// Necessary to keep in order to update after the iteration 
-												// We anticipate maximum of MAXCOUNT number of objects
+												// We anticipate maximum of MAXCOUNT_BLOCK number of objects in the region.
 					float p_objs[AVX_CACHE * MAXCOUNT_BLOCK]; //Array for the object information.
 
 					// Sift through the relevant regions of OBJS_IN_BLOCK to find objects that belong to the
@@ -282,7 +265,7 @@ int main(int argc, char *argv[])
 						}
 					}
 
-					// Read in object information
+					// ----- Transfer objects (x, y, f) to cache ------ //
 					#pragma omp simd collapse(2)
 					for (k=0; k<p_nobjs; k++){
 						for (l=0; l<AVX_CACHE; l++){
@@ -303,8 +286,8 @@ int main(int argc, char *argv[])
 					// 	}
 					// }
 
-
-					// Gather operation for the current values.
+					// ----- Gather operation for the current values ----- //
+					// For simd computation later.
 					float current_flux[MAXCOUNT_BLOCK];
 					float current_x[MAXCOUNT_BLOCK];
 					float current_y[MAXCOUNT_BLOCK];					
@@ -314,8 +297,8 @@ int main(int argc, char *argv[])
 						current_flux[k] = OBJS[p_objs_idx[k]*AVX_CACHE+BIT_FLUX];
 					}
 
-					// ----- Implement perturbation ----- //
-					// Draw random numbers to be used. 3 * p_nobjs random normal number for f, x, y.
+					// ------ Draw unit normal random numbers to be used. ------- //
+					// 3 * p_nobjs random normal number for f, x, y.
 					int p_seed = time_seed * (1+t_id); // Note that this seeding is necessary					
 					float randn[4 * MAXCOUNT_BLOCK]; // 4 since the alogrithm below generates two random numbers at a time
 													// I may be generating way more than necessary.
@@ -332,13 +315,11 @@ int main(int argc, char *argv[])
 						// printf("%.3f, ", randn[k]); // For debugging. 
 					}
 
-					// Generate proposed values. 
-					// Also compute flux distribution prior factor
+					// ----- Generate proposed values ------ //
 					// Note: Proposed fluxes must be above the minimum flux.
 					float proposed_flux[MAXCOUNT_BLOCK];
 					float proposed_x[MAXCOUNT_BLOCK];
 					float proposed_y[MAXCOUNT_BLOCK];
-
 					#pragma omp simd
 					for (k=0; k<p_nobjs; k++){
 						// Flux
@@ -354,7 +335,6 @@ int main(int argc, char *argv[])
 						proposed_x[k] = current_x[k] + dx;
 						proposed_y[k] = current_y[k] + dy;
 					}
-
 					// If the position is outside the image, bounce it back inside
 					for (k=0; k<p_nobjs; k++){
 						float px = proposed_x[k];
@@ -378,25 +358,24 @@ int main(int argc, char *argv[])
 						}									
 					}// End of x,y bouncing
 
+					// ------ compute flux distribution prior factor ------ //
 					float factor = 0; // Prior factor 
-					// Propose position changes
 					for (k=0; k< p_nobjs; k++){
 						factor -= TRUE_MIN_FLUX * log(proposed_flux[k]/current_flux[k]); // Accumulating factor											
 					}
 
-					// Compute dX matrix for current and proposed. Incorporate flux changes.
+					// ----- Compute dX matrix for current and proposed, incorporating flux ----- //
 					int current_ix[MAXCOUNT_BLOCK];
 					int proposed_ix[MAXCOUNT_BLOCK];
 					int current_iy[MAXCOUNT_BLOCK];
 					int proposed_iy[MAXCOUNT_BLOCK];					
 					#pragma omp simd
 					for (k=0; k< p_nobjs; k++){
-						// Calculate dx, dy
 						current_ix[k] = ceil(proposed_x[k]);
 						current_iy[k] = ceil(proposed_y[k]);
 						proposed_ix[k] = ceil(current_x[k]);
 						proposed_iy[k] = ceil(current_y[k]);
-					}					
+					} // end of ix, iy computation
 					
 					// For vectorization, compute dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] and transpose to dX [MAXCOUNT, AVX_CACHE2]
 					float current_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK]; 
@@ -448,7 +427,7 @@ int main(int argc, char *argv[])
 						// dy*dy*dy
 						current_dX_T[MAXCOUNT_BLOCK * 9 + k] = dcy * dcy * dcy * cf;
 						proposed_dX_T[MAXCOUNT_BLOCK * 9+ k] = dcy * dcy * dcy * pf; 
-					}
+					} // end of dX computation 
 					
 					// Transposing the matrices: dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] to dX [MAXCOUNT, AVX_CACHE2]
 					float current_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
@@ -458,7 +437,7 @@ int main(int argc, char *argv[])
 							current_dX[k*AVX_CACHE2+l] = current_dX_T[MAXCOUNT_BLOCK*l+k];
 							proposed_dX[k*AVX_CACHE2+l] = proposed_dX_T[MAXCOUNT_BLOCK*l+k];							
 						}
-					}
+					}// end of transpose
 					
 
 				// printf("End of Block %d computation.\n\n", block_ID);
