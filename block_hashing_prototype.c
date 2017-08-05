@@ -318,24 +318,28 @@ int main(int argc, char *argv[])
 						proposed_y[k] = current_y[k] + dy;
 					}
 
-					// // If the position is outside the image, bounce it back inside
-					// for (k=0; k<p_nobjs; k++){
-					// 	if 
+					// If the position is outside the image, bounce it back inside
+					for (k=0; k<p_nobjs; k++){
+						float px = proposed_x[k];
+						float py = proposed_y[k];
+						if (px < 0){
+							proposed_x[k] *= -1;
+						}
+						else{
+							if (px > IMAGE_WIDTH-1){
+								proposed_x[k] = 2 * (IMAGE_WIDTH-1) - px;
+							}
+						}
 
-					// // px = x0 + dx
-		   //          // py = y0 + dy
-		   //          // # bounce off of edges of image
-		   //          // mask = px < 0
-		   //          // px[mask] *= -1
-		   //          // mask = px > (imsz[0] - 1)
-		   //          // px[mask] *= -1
-		   //          // px[mask] += 2*(imsz[0] - 1)
-		   //          // mask = py < 0
-		   //          // py[mask] *= -1
-		   //          // mask = py > (imsz[1] - 1)
-		   //          // py[mask] *= -1
-		   //          // py[mask] += 2*(imsz[1] - 1)							
-					// }
+						if (py < 0){
+							proposed_y[k] *= -1;
+						}
+						else{
+							if (py > IMAGE_WIDTH-1){
+								proposed_y[k] = 2 * (IMAGE_WIDTH-1) - px;
+							}
+						}									
+					}// End of x,y bouncing
 
 					float factor = 0; // Prior factor 
 					// Propose position changes
@@ -343,11 +347,18 @@ int main(int argc, char *argv[])
 						factor -= TRUE_MIN_FLUX * log(proposed_flux[k]/current_flux[k]); // Accumulating factor											
 					}
 
-		            
-
-
 					// Compute dX matrix for current and proposed. Incorporate flux changes.
-					// float current_dX 
+					float current_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
+					float proposed_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
+
+					ix = np.ceil(x).astype(np.int32)
+			        dx = ix - x
+			        iy = np.ceil(y).astype(np.int32)
+			        dy = iy - y
+
+			        dd = np.column_stack((np.full(nstar, 1., dtype=np.float32), dx, dy, dx*dx, dx*dy, dy*dy, dx*dx*dx, dx*dx*dy, dx*dy*dy, dy*dy*dy)).astype(np.float32) * f[:, None]
+
+					
 
 				// printf("End of Block %d computation.\n\n", block_ID);
 				} // End of y block loop
