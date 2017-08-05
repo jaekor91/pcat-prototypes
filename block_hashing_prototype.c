@@ -24,7 +24,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 8
+#define NUM_BLOCKS_PER_DIM 16
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
@@ -88,6 +88,7 @@ int main(int argc, char *argv[])
 	int max_num_threads = omp_get_max_threads();
 	printf("Number of max threads: %d\n", max_num_threads);
 
+	int i, j; // Initialization and NITER Loop variables	
 
 	// ----- Declare global, shared variables ----- //
 	// Object array. Each object gets AVX_CACHE space or 16 floats.
@@ -97,11 +98,17 @@ int main(int argc, char *argv[])
 	// Block counter for each thread
 	__attribute__((aligned(64))) int BLOCK_COUNT_THREAD[max_num_threads * NUM_BLOCKS_TOTAL]; 
 
+	// Initialize hashing variables	
+	#pragma omp parallel for simd
+	for (i=0; i<MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL; i++){
+		OBJS_IN_BLOCK[i] = -1; // Can't set it to zero since 0 is a valid object number.
+	}		
+
+
 
 	double start, end, dt, dt_per_iter; // For timing purpose.
 	// For each number of stars.
 	dt = 0; // Time accumulator
-	int i, j; // Initialization and NITER Loop variables	
 
 	// Initializing random seed for the whole program.
 	srand(123);
@@ -142,11 +149,6 @@ int main(int argc, char *argv[])
 		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
 
-		// Initialize hashing variables	
-		#pragma omp parallel for simd
-		for (i=0; i<MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL; i++){
-			OBJS_IN_BLOCK[i] = -1; // Can't set it to zero since 0 is a valid object number.
-		}		
 		
 		// ----- Main computation begins here ----- //
 		start = omp_get_wtime(); // Timing starts here 		
