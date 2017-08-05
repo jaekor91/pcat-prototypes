@@ -38,7 +38,7 @@
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define DEBUG 1 // Set to 1 only when debugging
+#define DEBUG 0 // Set to 1 only when debugging
 #if DEBUG
 	// General strategy
 	// One thread, one block, one iteration
@@ -495,7 +495,6 @@ int main(int argc, char *argv[])
 					// ------ Transfer data and model for the block ----- //
 					__attribute__((aligned(64))) float model_proposed[BLOCK * BLOCK];
 					__attribute__((aligned(64))) float data[BLOCK * BLOCK];
-					__attribute__((aligned(64))) float data_present[BLOCK * BLOCK]; // 1 if data is present, 0 if padded region.
 
 					#pragma omp simd
 					for (l=0; l<BLOCK; l++){						
@@ -505,6 +504,18 @@ int main(int argc, char *argv[])
 						}
 					}
 
+			
+					// ----- Compute the original likelihood based on the current model. ----- //
+					__attribute__((aligned(64))) float loglike_temp[BLOCK];					
+					float b_loglike = 0;// Original block likelihood
+					float p_loglike = 0; // Proposed move's loglikehood
+
+					#pragma omp simd // Check whether SIMD makes this faster
+					for (k=0; k<AVX_CACHE; k++){
+						loglike_temp[k] = 0;
+					}
+
+					int idx;
 					// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
 					int l_min = 0;
 					int l_max = BLOCK;
@@ -524,96 +535,71 @@ int main(int argc, char *argv[])
 						// }
 					#endif	
 
-					int idx;
-					#pragma omp simd
-					for (l = 0; l < BLOCK; l++){ // Compiler automatically vectorize this.															
-						for (m = 0; m < BLOCK; m++){
-							idx = l*BLOCK+m;
-							data_present[idx]=0;
-						}
-					}	
-
 					for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 						for (m = m_min; m < m_max; m++){
 							idx = l*BLOCK+m;
-							data_present[idx] = 1;
-						}
-					}
-
-
-
-					// ----- Compute the original likelihood based on the current model. ----- //
-					__attribute__((aligned(64))) float loglike_temp[BLOCK];					
-					float b_loglike = 0;// Original block likelihood
-					float p_loglike = 0; // Proposed move's loglikehood
-
-					#pragma omp simd // Check whether SIMD makes this faster
-					for (k=0; k<AVX_CACHE; k++){
-						loglike_temp[k] = 0;
-					}
-					for (l = 0; l < BLOCK; l++){ // Compiler automatically vectorize this.															
-						for (m = 0; m < BLOCK; m++){
-							idx = l*BLOCK+m;
 							// Poisson likelihood
-							float f = log(model_proposed[idx]);
-							float g = f * data[idx] - model_proposed[idx];
-							loglike_temp[m] += g * data_present[idx];
+							float tmp = model_proposed[idx];
+							float f = log(tmp);
+							float g = f * data[idx];
+							loglike_temp[m] += g - tmp;
 						}
 					}					
-					for (k=0; k<AVX_CACHE; k++){
+					for (k=0; k<BLOCK; k++){
 						b_loglike += loglike_temp[k];
 					}						
 
-					// // ----- Hashing ----- //
-					// // This steps reduces number of PSFs that need to be evaluated.					
-					// __attribute__((aligned(64))) int hash[BLOCK*BLOCK];
-					// // Note: Objs may fall out of the inner proposal region. However
-					// // it shouldn't go too much out of it. So as long as MARGIN1 is 
-					// // 1 or 2, there should be no problem. 
-					// #pragma omp simd // Explicit vectorization
-				 //    for (k=0; k<BLOCK*BLOCK; k++) { hash[k] = -1; }
-				 //    int jstar = 0; // Number of stars after coalescing.
-					// int istar;
-					// int xx, yy;
-				 //    for (istar = 0; istar < p_nobjs; istar++) // This must be a serial operation.
-				 //    {
-				 //        xx = ix[istar];
-				 //        yy = iy[istar];
-				 //        #if DEBUG
-					//         if (block_ID==BLOCK_ID_DEBUG){
-					//         	printf("%d, %d, %d, %d\n", ix[istar], iy[istar], xx, yy);				        	
-					//         }
-				 //        	printf("\n");					        
-					//     #endif
-				 //        int idx = xx*BLOCK+yy;
-				 //        if (hash[idx] != -1) {
-				 //        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
-				 //            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] += dX[istar*AVX_CACHE2+l]; }
-				 //        }
-				 //        else {
-				 //            hash[idx] = jstar;
-				 //            #pragma omp simd // Compiler knows how to unroll.
-				 //            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] = dX[istar*AVX_CACHE2+l]; }
-				 //            ix[jstar] = ix[istar];
-				 //            iy[jstar] = iy[istar];
-				 //            jstar++;
-				 //        }
-				 //    }
+					// ----- Hashing ----- //
+					// This steps reduces number of PSFs that need to be evaluated.					
+					__attribute__((aligned(64))) int hash[BLOCK*BLOCK];
+					// Note: Objs may fall out of the inner proposal region. However
+					// it shouldn't go too much out of it. So as long as MARGIN1 is 
+					// 1 or 2, there should be no problem. 
+					#pragma omp simd // Explicit vectorization
+				    for (k=0; k<BLOCK*BLOCK; k++) { hash[k] = -1; }
+				    	
+				    int jstar = 0; // Number of stars after coalescing.
+					int istar;
+					int xx, yy;
+				    for (istar = 0; istar < p_nobjs; istar++) // This must be a serial operation.
+				    {
+				        xx = ix[istar];
+				        yy = iy[istar];
+				        #if DEBUG
+					        if (block_ID==BLOCK_ID_DEBUG){
+					        	printf("%d, %d, %d, %d\n", ix[istar], iy[istar], xx, yy);				        	
+					        }
+				        	printf("\n");					        
+					    #endif
+				        int idx = xx*BLOCK+yy;
+				        if (hash[idx] != -1) {
+				        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
+				            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] += dX[istar*AVX_CACHE2+l]; }
+				        }
+				        else {
+				            hash[idx] = jstar;
+				            #pragma omp simd // Compiler knows how to unroll.
+				            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] = dX[istar*AVX_CACHE2+l]; }
+				            ix[jstar] = ix[istar];
+				            iy[jstar] = iy[istar];
+				            jstar++;
+				        }
+				    }
 
-					// // row and col location of the star based on X, Y values.
-					// // Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
-					// // Calculate PSF and then add to model proposed
-					// for (k=0; k<jstar; k++){
-					// 	idx_row = (MARGIN1 + MARGIN2) + p_X[k];
-					// 	idx_col = (MARGIN1 + MARGIN2) + p_Y[k];							
-					// 	#pragma omp simd
-					// 	for (l=0; l<NPIX2; l++){
-					// 		for (m=0; m<INNER; m++){
-					// 			// AVX_CACHE_VERSION
-					// 			model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK + (idx_col+(l%NPIX)-NPIX_div2)] += p_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-					// 		} 
-					// 	}// End of PSF calculation for K-th star
-					// }
+					// row and col location of the star based on X, Y values.
+					// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
+					// Calculate PSF and then add to model proposed
+					for (k=0; k<jstar; k++){
+						idx_row = (MARGIN1 + MARGIN2) + p_X[k];
+						idx_col = (MARGIN1 + MARGIN2) + p_Y[k];							
+						#pragma omp simd
+						for (l=0; l<NPIX2; l++){
+							for (m=0; m<INNER; m++){
+								// AVX_CACHE_VERSION
+								model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK + (idx_col+(l%NPIX)-NPIX_div2)] += p_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+							} 
+						}// End of PSF calculation for K-th star
+					}
 
 
 					// // // ----- Compute the new likelihood ----- //
