@@ -28,8 +28,8 @@
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 0// Number of burn-in to perform
-#define NITER (1+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 10000// Number of burn-in to perform
+#define NITER (10000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -266,10 +266,20 @@ int main(int argc, char *argv[])
 					// 	printf("Number of objects in the block: %d\n", p_nobjs);
 					// }
 
-					int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
+
+					// Gather operation for the current values.
+					float current_flux[MAXCOUNT_BLOCK];
+					float current_x[MAXCOUNT_BLOCK];
+					float current_y[MAXCOUNT_BLOCK];					
+					for (k=0; k<p_nobjs; k++){
+						current_x[k] = OBJS[p_objs_idx[k]*AVX_CACHE+BIT_X];
+						current_y[k] = OBJS[p_objs_idx[k]*AVX_CACHE+BIT_Y];
+						current_flux[k] = OBJS[p_objs_idx[k]*AVX_CACHE+BIT_FLUX];
+					}
 
 					// ----- Implement perturbation ----- //
 					// Draw random numbers to be used. 3 * p_nobjs random normal number for f, x, y.
+					int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary					
 					float randn[4 * MAXCOUNT_BLOCK]; // 4 since the alogrithm below generates two random numbers at a time
 													// I may be generating way more than necessary.
 					#pragma omp simd
@@ -285,65 +295,59 @@ int main(int argc, char *argv[])
 						// printf("%.3f, ", randn[k]); // For debugging. 
 					}
 
-
-					// Proposed flux. Also compute flux distribution prior factor
+					// Generate proposed values. 
+					// Also compute flux distribution prior factor
 					// Note: Proposed fluxes must be above the minimum flux.
 					float proposed_flux[MAXCOUNT_BLOCK];
-					float dpos_rms[MAXCOUNT_BLOCK];
-					float factor = 0;
-					// #pragma omp simd // SIMD is not going to work because of branching.
-					for (k=0; k<p_nobjs; k++){
-						float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * 12.0; // (60./np.sqrt(25.))
-						float f0 = p_objs[(k * AVX_CACHE)+BIT_FLUX];
-						float tmp_f = f0+df;
-						if ((tmp_f) < TRUE_MIN_FLUX){ 
-							// If the proposed flux is below minimum, bounce off. Why this particular form?
-							proposed_flux[k] = -tmp_f + 2 * TRUE_MIN_FLUX; // f0 - df - 2 * (f0-TRUE_MIN_FLUX);
-						}
-						else{
-							proposed_flux[k] = tmp_f;
-						}
-						dpos_rms[k] = 12.0 / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
-						factor -= TRUE_MIN_FLUX * log(proposed_flux[k]/f0); // Accumulating factor
-					}
+					float proposed_x[MAXCOUNT_BLOCK];
+					float proposed_y[MAXCOUNT_BLOCK];
 
-					// Propose position changes
-					float dx[MAXCOUNT_BLOCK];
-					float dy[MAXCOUNT_BLOCK];
 					#pragma omp simd
-					for (k=0; k< p_nobjs; k++){
-						dx[k] = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms[k];
-						dy[k] = randn[BIT_Y * MAXCOUNT_BLOCK + k] * dpos_rms[k];					
+					for (k=0; k<p_nobjs; k++){
+						// Flux
+						float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * 12.0; // (60./np.sqrt(25.))
+						float f0 = current_flux[k];
+						float pf1 = f0+df;
+						float pf2 = -pf1 + 2*TRUE_MIN_FLUX; // If the proposed flux is below minimum, bounce off. Why this particular form?
+						proposed_flux[k] = max(pf1, pf2);
+						// Position
+						float dpos_rms = 12.0 / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
+						float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
+						float dy = randn[BIT_Y * MAXCOUNT_BLOCK + k] * dpos_rms;
+						proposed_x[k] = current_x[k] + dx;
+						proposed_y[k] = current_y[k] + dy;
 					}
 
+					// // If the position is outside the image, bounce it back inside
+					// for (k=0; k<p_nobjs; k++){
+					// 	if 
 
-		            // dx = np.random.normal(size=nw).astype(np.float32)*dpos_rms
-		            // dy = np.random.normal(size=nw).astype(np.float32)*dpos_rms
-		            // x0 = x.take(idx_move)
-		            // y0 = y.take(idx_move)
-		            // px = x0 + dx
-		            // py = y0 + dy
-		            // # bounce off of edges of image
-		            // mask = px < 0
-		            // px[mask] *= -1
-		            // mask = px > (imsz[0] - 1)
-		            // px[mask] *= -1
-		            // px[mask] += 2*(imsz[0] - 1)
-		            // mask = py < 0
-		            // py[mask] *= -1
-		            // mask = py > (imsz[1] - 1)
-		            // py[mask] *= -1
-		            // py[mask] += 2*(imsz[1] - 1)
-		            // goodmove = True # always True because we bounce off the edges of the image and fmin
+					// // px = x0 + dx
+		   //          // py = y0 + dy
+		   //          // # bounce off of edges of image
+		   //          // mask = px < 0
+		   //          // px[mask] *= -1
+		   //          // mask = px > (imsz[0] - 1)
+		   //          // px[mask] *= -1
+		   //          // px[mask] += 2*(imsz[0] - 1)
+		   //          // mask = py < 0
+		   //          // py[mask] *= -1
+		   //          // mask = py > (imsz[1] - 1)
+		   //          // py[mask] *= -1
+		   //          // py[mask] += 2*(imsz[1] - 1)							
+					// }
+
+					float factor = 0; // Prior factor 
+					// Propose position changes
+					for (k=0; k< p_nobjs; k++){
+						factor -= TRUE_MIN_FLUX * log(proposed_flux[k]/current_flux[k]); // Accumulating factor											
+					}
+
+		            
 
 
-					// Compute dX matrix incorporating fluxes
-
-
-				
-
-
-
+					// Compute dX matrix for current and proposed. Incorporate flux changes.
+					// float current_dX 
 
 				// printf("End of Block %d computation.\n\n", block_ID);
 				} // End of y block loop
