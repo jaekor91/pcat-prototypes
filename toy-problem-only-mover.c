@@ -236,9 +236,9 @@ int main(int argc, char *argv[])
 		// Iterating through all the blocks.
 		// IMPORTANT: X is the row direction and Y is the column direction.
 		time_seed = (int) (time(NULL)) * rand();		
+		int ibx, iby; // Block idx		
 		#pragma omp parallel
 		{
-			int ibx, iby; // Block idx
 			// Recall that we only consider the center blocks. That's where the extra 1 come from
 			#pragma omp for collapse(2) 
 			for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction				
