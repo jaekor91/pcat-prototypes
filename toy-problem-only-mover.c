@@ -20,6 +20,9 @@
 #define AVX_CACHE2 16
 #define NPIX_div2 12
 #define INNER 10
+#define NPIX 25 // PSF single dimension
+#define NPIX_div2 12
+#define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
 #define MARGIN1 0 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
@@ -94,8 +97,6 @@ int main(int argc, char *argv[])
 {	
 
 	// Print basic parameters of the problem.
-	int size_of_DATA = IMAGE_SIZE;
-	// printf("Image size: %d\n", size_of_DATA);
 	printf("NITER: %d\n", (NITER-NITER_BURNIN));
 	printf("Block width: %d\n", BLOCK);
 	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
@@ -165,7 +166,7 @@ int main(int argc, char *argv[])
 	for (j=0; j<NITER; j++){
 
 		start = omp_get_wtime(); // Timing starts here 		
-		
+
 		// ------- Generating offsets ------ //
 		// Note that image is padded with BLOCK/2 on every side.
 		// The mesh size is the same as the image size. It's shifted in each iteration.
