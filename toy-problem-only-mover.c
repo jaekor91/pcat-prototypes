@@ -27,7 +27,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 1
+#define NUM_BLOCKS_PER_DIM 2
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
@@ -43,7 +43,8 @@
 	// General strategy
 	// One thread, one block, one iteration
 	// One thread, one block, multiplie iterations
-	#define NITER 4
+	// One thread, multiple blocks, multiplie iterations
+	#define NITER 10
 	#define NITER_BURNIN 0
 	#define MAX_STARS 100
 	#define BLOCK_ID_DEBUG 0
@@ -176,7 +177,9 @@ int main(int argc, char *argv[])
 	// Start of the loop
 	printf("\nLoop starts here.\n");
 	for (j=0; j<NITER; j++){
-
+		#if DEBUG 
+			printf("\n------ Start of iteration %d -------\n", j);
+		#endif
 		start = omp_get_wtime(); // Timing starts here 		
 
 		// ------- Generating offsets ------ //
@@ -194,7 +197,7 @@ int main(int argc, char *argv[])
 	
 
 		// ------ Set the counter to zero ------ //
-		#pragma omp parallel for simd
+		#pragma omp parallel for simd shared(BLOCK_COUNT_THREAD)
 		for (i=0; i < max_num_threads * NUM_BLOCKS_TOTAL; i++){
 			BLOCK_COUNT_THREAD[i] = 0;
 		}
@@ -208,7 +211,7 @@ int main(int argc, char *argv[])
 		// If the objects are within the proposal region,
 		// then update the corresponding block objs array element. 
 		// Otherwise, do nothing.		
-		#pragma omp parallel //shared(BLOCK_COUNT_THREAD)
+		#pragma omp parallel shared(BLOCK_COUNT_THREAD)
 		{
 			int i;
 			int t_id = omp_get_thread_num(); // Get thread number			
@@ -218,8 +221,8 @@ int main(int argc, char *argv[])
 				// Get x, y of the object.
 				// Offset is for the mesh offset.
 				int idx = i*AVX_CACHE;
-				int x = floor(OBJS[idx] - offset_X - BLOCK/2);
-				int y = floor(OBJS[idx+1] - offset_Y - BLOCK/2);
+				int x = floor(OBJS[idx+BIT_X] - offset_X - BLOCK/2);
+				int y = floor(OBJS[idx+BIT_Y] - offset_Y - BLOCK/2);
 
 				int b_idx = x / BLOCK;
 				int b_idy = y / BLOCK;
@@ -227,18 +230,20 @@ int main(int argc, char *argv[])
 				int y_in_block = y - b_idy * BLOCK;
 				// Check if the object falls in the right region.
 				// If yes, update.
-				if ((x_in_block >= (MARGIN1+MARGIN2)) &  (y_in_block >= (MARGIN1+MARGIN2)) &
+				if ( (b_idx < NUM_BLOCKS_PER_DIM) & (b_idy < NUM_BLOCKS_PER_DIM) &
+					(x_in_block >= (MARGIN1+MARGIN2)) &  (y_in_block >= (MARGIN1+MARGIN2)) &
 					(x_in_block < (MARGIN1+MARGIN2+REGION)) & (y_in_block < (MARGIN1+MARGIN2+REGION)))
 				{
 					int b_id = (b_idx * NUM_BLOCKS_PER_DIM) + b_idy; // Compute block id of the object.
 					OBJS_IN_BLOCK[MAXCOUNT * (max_num_threads * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
 					BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]+=1; // Update the counts
 					#if DEBUG
+						printf("tid: %d\n", t_id);
+						printf("b_id x/y: %d, %d\n", b_idx, b_idy);						
 						printf("OBJS x/y after cut: %d/%d\n", x, y);
 						printf("x/y_in_block: %d, %d\n", x_in_block, y_in_block);										
 						printf("OBJS number: %d\n", i);
 						printf("Block count: %d\n", BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]);					
-						printf("b_id x/y: %d, %d\n", b_idx, b_idy);
 						printf("OBJS_BID: %d\n\n", b_id);							
 					#endif
 				}//	
@@ -490,6 +495,7 @@ int main(int argc, char *argv[])
 					// ------ Transfer data and model for the block ----- //
 					__attribute__((aligned(64))) float model_proposed[BLOCK * BLOCK];
 					__attribute__((aligned(64))) float data[BLOCK * BLOCK];
+					__attribute__((aligned(64))) float data_present[BLOCK * BLOCK]; // 1 if data is present, 0 if padded region.
 
 					#pragma omp simd
 					for (l=0; l<BLOCK; l++){						
@@ -499,17 +505,6 @@ int main(int argc, char *argv[])
 						}
 					}
 
-					// ----- Compute the original likelihood based on the current model. ----- //
-					__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];					
-					float b_loglike = 0;// Original block likelihood
-					float p_loglike = 0; // Proposed move's loglikehood
-
-					#pragma omp simd // Check whether SIMD makes this faster
-					for (k=0; k<AVX_CACHE; k++){
-						loglike_temp[k] = 0;
-					}
-
-					int idx;
 					// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
 					int l_min = 0;
 					int l_max = BLOCK;
@@ -520,59 +515,90 @@ int main(int argc, char *argv[])
 					// if ( (idx_row+BLOCK) > (DATA_WIDTH+BLOCK/2-1)) { l_max = BLOCK - (idx_row+BLOCK-DATA_WIDTH-BLOCK/2+1); }
 					if ( idx_row > (DATA_WIDTH-BLOCK/2-1)) { l_max = -idx_row+DATA_WIDTH+(BLOCK/2); }
 					if ( idx_col > (DATA_WIDTH-BLOCK/2-1)) { m_max = -idx_col+DATA_WIDTH+(BLOCK/2); }
-					// // Debug
-					// if (block_ID == BLOCK_ID_DEBUG) { 
-					// 	printf("%4d, %4d\n", idx_row, idx_col);
-					// 	printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
-					// }					
+
+					#if DEBUG
+						// if (block_ID == BLOCK_ID_DEBUG) { 
+							printf("%4d\n", block_ID);
+							printf("%4d, %4d\n", idx_row, idx_col);
+							printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
+						// }
+					#endif	
+
+					int idx;
+					#pragma omp simd
+					for (l = 0; l < BLOCK; l++){ // Compiler automatically vectorize this.															
+						for (m = 0; m < BLOCK; m++){
+							idx = l*BLOCK+m;
+							data_present[idx]=0;
+						}
+					}	
+
 					for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 						for (m = m_min; m < m_max; m++){
 							idx = l*BLOCK+m;
-							// Poisson likelihood
-							float f = log(model_proposed[idx]);
-							float g = f * data[idx];
-							loglike_temp[m] += g - model_proposed[idx];
+							data_present[idx] = 1;
 						}
 					}
+
+
+
+					// ----- Compute the original likelihood based on the current model. ----- //
+					__attribute__((aligned(64))) float loglike_temp[BLOCK];					
+					float b_loglike = 0;// Original block likelihood
+					float p_loglike = 0; // Proposed move's loglikehood
+
+					#pragma omp simd // Check whether SIMD makes this faster
+					for (k=0; k<AVX_CACHE; k++){
+						loglike_temp[k] = 0;
+					}
+					for (l = 0; l < BLOCK; l++){ // Compiler automatically vectorize this.															
+						for (m = 0; m < BLOCK; m++){
+							idx = l*BLOCK+m;
+							// Poisson likelihood
+							float f = log(model_proposed[idx]);
+							float g = f * data[idx] - model_proposed[idx];
+							loglike_temp[m] += g * data_present[idx];
+						}
+					}					
 					for (k=0; k<AVX_CACHE; k++){
 						b_loglike += loglike_temp[k];
 					}						
 
-					// ----- Hashing ----- //
-					// This steps reduces number of PSFs that need to be evaluated.					
-					__attribute__((aligned(64))) int hash[BLOCK*BLOCK];
-					// Note: Objs may fall out of the inner proposal region. However
-					// it shouldn't go too much out of it. So as long as MARGIN1 is 
-					// 1 or 2, there should be no problem. 
-					#pragma omp simd // Explicit vectorization
-				    for (k=0; k<BLOCK*BLOCK; k++) { hash[k] = -1; }
-				    int jstar = 0; // Number of stars after coalescing.
-					int istar;
-					int xx, yy;
-				    for (istar = 0; istar < p_nobjs; istar++) // This must be a serial operation.
-				    {
-				        xx = ix[istar];
-				        yy = iy[istar];
-				        #if DEBUG
-					        if (block_ID==BLOCK_ID_DEBUG){
-					        	printf("%d, %d, %d, %d\n", ix[istar], iy[istar], xx, yy);				        	
-					        }
-				        	printf("\n");					        
-					    #endif
-				        int idx = xx*BLOCK+yy;
-				        if (hash[idx] != -1) {
-				        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
-				            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] += dX[istar*AVX_CACHE2+l]; }
-				        }
-				        else {
-				            hash[idx] = jstar;
-				            #pragma omp simd // Compiler knows how to unroll.
-				            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] = dX[istar*AVX_CACHE2+l]; }
-				            ix[jstar] = ix[istar];
-				            iy[jstar] = iy[istar];
-				            jstar++;
-				        }
-				    }
+					// // ----- Hashing ----- //
+					// // This steps reduces number of PSFs that need to be evaluated.					
+					// __attribute__((aligned(64))) int hash[BLOCK*BLOCK];
+					// // Note: Objs may fall out of the inner proposal region. However
+					// // it shouldn't go too much out of it. So as long as MARGIN1 is 
+					// // 1 or 2, there should be no problem. 
+					// #pragma omp simd // Explicit vectorization
+				 //    for (k=0; k<BLOCK*BLOCK; k++) { hash[k] = -1; }
+				 //    int jstar = 0; // Number of stars after coalescing.
+					// int istar;
+					// int xx, yy;
+				 //    for (istar = 0; istar < p_nobjs; istar++) // This must be a serial operation.
+				 //    {
+				 //        xx = ix[istar];
+				 //        yy = iy[istar];
+				 //        #if DEBUG
+					//         if (block_ID==BLOCK_ID_DEBUG){
+					//         	printf("%d, %d, %d, %d\n", ix[istar], iy[istar], xx, yy);				        	
+					//         }
+				 //        	printf("\n");					        
+					//     #endif
+				 //        int idx = xx*BLOCK+yy;
+				 //        if (hash[idx] != -1) {
+				 //        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
+				 //            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] += dX[istar*AVX_CACHE2+l]; }
+				 //        }
+				 //        else {
+				 //            hash[idx] = jstar;
+				 //            #pragma omp simd // Compiler knows how to unroll.
+				 //            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] = dX[istar*AVX_CACHE2+l]; }
+				 //            ix[jstar] = ix[istar];
+				 //            iy[jstar] = iy[istar];
+				 //            jstar++;
+				 //        }
+				 //    }
 
 					// // row and col location of the star based on X, Y values.
 					// // Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
@@ -637,7 +663,9 @@ int main(int argc, char *argv[])
 				// printf("End of Block %d computation.\n\n", block_ID);
 				} // End of y block loop
 			} // End of x block loop
-			printf("-------- End of iteration %d --------\n\n", j);
+			#if DEBUG
+				printf("-------- End of iteration %d --------\n\n", j);
+			#endif
 		}// End of OMP parallel section
 
 
