@@ -213,7 +213,7 @@ int main(int argc, char *argv[])
 			// ----- Model evaluation, followed by acceptance or rejection. ----- //
 			// Iterating through all the blocks.
 			// IMPORTANT: X is the row direction and Y is the column direction.
-			#pragma omp parallel
+			#pragma omp parallel shared(MODEL, DATA)
 			{
 				int ibx, iby; // Block idx
 				// Recall that we only consider the center blocks. That's where the extra 1 come from
