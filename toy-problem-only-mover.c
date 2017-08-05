@@ -32,8 +32,6 @@
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 0// Number of burn-in to perform
-#define NITER (1+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -42,6 +40,13 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define DEBUG 1 // Set to 1 only when debugging
+#if DEBUG
+	#define NITER 1
+	#define NITER_BURNIN 0
+#else
+	#define NITER_BURNIN 100// Number of burn-in to perform
+	#define NITER (100+NITER_BURNIN) // Number of iterations
+#endif 
 
 // Bit number of objects within 
 #define BIT_X 0
