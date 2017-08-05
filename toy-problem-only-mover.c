@@ -32,8 +32,8 @@
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
-#define NITER_BURNIN 0// Number of burn-in to perform
-#define NITER (2+NITER_BURNIN) // Number of iterations
+#define NITER_BURNIN 1000// Number of burn-in to perform
+#define NITER (1000+NITER_BURNIN) // Number of iterations
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
@@ -273,18 +273,18 @@ int main(int argc, char *argv[])
 						}
 					}
 
-					// Debug: Looking at objects selected for change. Must mach objects
-					// identified up-stream
-					if (block_ID==60){
-						printf("\nThread/Block id: %3d, %3d\n", t_id, block_ID);
-						printf("Number of objects in the block: %d\n", p_nobjs);
-						printf("(x,y) after accounting for offsets: %d, %d\n", offset_X, offset_Y);
-						for (k=0; k<p_nobjs; k++){
-							float x = p_objs[AVX_CACHE*k] - BLOCK/2 - offset_X;
-							float y = p_objs[AVX_CACHE*k+1] - BLOCK/2 - offset_Y;
-							printf("objs %2d: %.1f, %.1f\n", k, x, y);
-						}
-					}
+					// // Debug: Looking at objects selected for change. Must mach objects
+					// // identified up-stream
+					// if (block_ID==60){
+					// 	printf("\nThread/Block id: %3d, %3d\n", t_id, block_ID);
+					// 	printf("Number of objects in the block: %d\n", p_nobjs);
+					// 	printf("(x,y) after accounting for offsets: %d, %d\n", offset_X, offset_Y);
+					// 	for (k=0; k<p_nobjs; k++){
+					// 		float x = p_objs[AVX_CACHE*k] - BLOCK/2 - offset_X;
+					// 		float y = p_objs[AVX_CACHE*k+1] - BLOCK/2 - offset_Y;
+					// 		printf("objs %2d: %.1f, %.1f\n", k, x, y);
+					// 	}
+					// }
 
 					// ----- Gather operation for the current values ----- //
 					// For simd computation later.
@@ -466,21 +466,25 @@ int main(int argc, char *argv[])
 						loglike_temp[k] = 0;
 					}						
 
-					// int idx;
-					// #pragma omp simd
-					// for (l=0; l < BLOCK; l++){ // 32
-					// 	for (m=0; m < BLOCK; m++){
-					// 		idx = l*BLOCK+m;
-					// 		// Poisson likelihood
-					// 		float f = log(model_proposed[idx]);
-					// 		float g = f * data[idx];
-					// 		loglike_temp[m] += g - model_proposed[idx];
-					// 	}
-					// }
-					// // Sum AVX_CACHE number
-					// for (k=0; k<AVX_CACHE; k++){
-					// 	b_loglike += loglike_temp[k];
-					// }						
+					int idx;
+					int l_min, lmax, m_min, m_max;
+					if (){
+						//
+					}
+					#pragma omp simd
+					for (l =0; l < BLOCK; l++){ // 32 // Row index
+						for (m=0; m < BLOCK; m++){
+							idx = l*BLOCK+m;
+							// Poisson likelihood
+							float f = log(model_proposed[idx]);
+							float g = f * data[idx];
+							loglike_temp[m] += g - model_proposed[idx];
+						}
+					}
+					// Sum AVX_CACHE number
+					for (k=0; k<AVX_CACHE; k++){
+						b_loglike += loglike_temp[k];
+					}						
 
 					// // ----- Hashing ----- //
 					// // This steps reduces number of PSFs that need to be evaluated.					
