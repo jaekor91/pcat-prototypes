@@ -38,11 +38,12 @@
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define DEBUG 0 // Set to 1 only when debugging
+#define DEBUG 1 // Set to 1 only when debugging
 #if DEBUG
 	#define NITER 1
 	#define NITER_BURNIN 0
 	#define MAX_STARS 100
+	#define BLOCK_ID_DEBUG 0
 #else
 	#define NITER_BURNIN 1000// Number of burn-in to perform
 	#define NITER (1000+NITER_BURNIN) // Number of iterations
@@ -286,7 +287,7 @@ int main(int argc, char *argv[])
 
 					// Debug: Looking at objects selected for change. Must mach objects
 					#if DEBUG
-						if (block_ID==0){
+						if (block_ID==BLOCK_ID_DEBUG){
 							printf("\nThread/Block id: %3d, %3d\n", t_id, block_ID);
 							printf("Number of objects in the block: %d\n", p_nobjs);
 							printf("(x,y) after accounting for offsets: %d, %d\n", offset_X, offset_Y);
@@ -468,11 +469,11 @@ int main(int argc, char *argv[])
 					p_nobjs *= 2;
 
 					#if DEBUG 
-						if (block_ID == 0){
+						if (block_ID == BLOCK_ID_DEBUG){
 							for (k=0; k<p_nobjs; k++){
 								printf("%d, %d\n", ix[k], iy[k]);
 							}
-							printf("Printed all objs.\n");
+							printf("Printed all objs.\n\n");
 						}
 					#endif 
 
@@ -487,7 +488,6 @@ int main(int argc, char *argv[])
 					__attribute__((aligned(64))) float model_proposed[BLOCK * BLOCK];
 					__attribute__((aligned(64))) float data[BLOCK * BLOCK];
 
-
 					#pragma omp simd
 					for (l=0; l<BLOCK; l++){						
 						for (k=0; k<BLOCK; k++){
@@ -495,7 +495,6 @@ int main(int argc, char *argv[])
 							data[l*BLOCK + k] = DATA[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];								
 						}
 					}
-
 
 					// ----- Compute the original likelihood based on the current model. ----- //
 					__attribute__((aligned(64))) float loglike_temp[AVX_CACHE];					
@@ -519,7 +518,7 @@ int main(int argc, char *argv[])
 					if ( idx_row > (DATA_WIDTH-BLOCK/2-1)) { l_max = -idx_row+DATA_WIDTH+(BLOCK/2); }
 					if ( idx_col > (DATA_WIDTH-BLOCK/2-1)) { m_max = -idx_col+DATA_WIDTH+(BLOCK/2); }
 					// // Debug
-					// if (block_ID == 15) { 
+					// if (block_ID == BLOCK_ID_DEBUG) { 
 					// 	printf("%4d, %4d\n", idx_row, idx_col);
 					// 	printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
 					// }					
@@ -552,7 +551,7 @@ int main(int argc, char *argv[])
 				        xx = ix[istar];
 				        yy = iy[istar];
 				        #if DEBUG
-					        if (block_ID==0){
+					        if (block_ID==BLOCK_ID_DEBUG){
 					        	printf("%d, %d, %d, %d\n", ix[istar], iy[istar], xx, yy);				        	
 					        }
 				        	printf("\n");					        
