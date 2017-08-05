@@ -16,8 +16,8 @@
 #include <sys/mman.h>
 
 // Define global dimensions
-#define AVX_CACHE 16 
 #define AVX_CACHE2 16
+#define AVX_CACHE AVX_CACHE2
 #define NPIX_div2 12
 #define INNER 10
 #define NPIX 25 // PSF single dimension
@@ -38,19 +38,19 @@
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define DEBUG 0 // Set to 1 only when debugging
+#define DEBUG 1 // Set to 1 only when debugging
 #if DEBUG
 	// General strategy
 	// One thread, one block, one iteration
 	// One thread, one block, multiplie iterations
 	// One thread, multiple blocks, multiplie iterations
-	#define NITER 10
+	#define NITER 100
 	#define NITER_BURNIN 0
-	#define MAX_STARS 100
-	#define BLOCK_ID_DEBUG 0
+	#define MAX_STARS 500
+	#define BLOCK_ID_DEBUG 2
 #else
-	#define NITER_BURNIN 1000// Number of burn-in to perform
-	#define NITER (1000+NITER_BURNIN) // Number of iterations
+	#define NITER_BURNIN 0// Number of burn-in to perform
+	#define NITER (10+NITER_BURNIN) // Number of iterations
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #endif 
 
@@ -149,8 +149,8 @@ int main(int argc, char *argv[])
 		#pragma omp for
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i*AVX_CACHE;
-			OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + BLOCK/2; // x
-			OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + BLOCK/2; // y
+			OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
+			OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
 			OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // flux.
 		}
 	}
@@ -221,8 +221,8 @@ int main(int argc, char *argv[])
 				// Get x, y of the object.
 				// Offset is for the mesh offset.
 				int idx = i*AVX_CACHE;
-				int x = floor(OBJS[idx+BIT_X] - offset_X - BLOCK/2);
-				int y = floor(OBJS[idx+BIT_Y] - offset_Y - BLOCK/2);
+				int x = floor(OBJS[idx+BIT_X] - offset_X - (BLOCK/2));
+				int y = floor(OBJS[idx+BIT_Y] - offset_Y - (BLOCK/2));
 
 				int b_idx = x / BLOCK;
 				int b_idy = y / BLOCK;
@@ -231,6 +231,7 @@ int main(int argc, char *argv[])
 				// Check if the object falls in the right region.
 				// If yes, update.
 				if ( (b_idx < NUM_BLOCKS_PER_DIM) & (b_idy < NUM_BLOCKS_PER_DIM) &
+					(b_idx > -1) & (b_idy > -1) &
 					(x_in_block >= (MARGIN1+MARGIN2)) &  (y_in_block >= (MARGIN1+MARGIN2)) &
 					(x_in_block < (MARGIN1+MARGIN2+REGION)) & (y_in_block < (MARGIN1+MARGIN2+REGION)))
 				{
@@ -300,8 +301,8 @@ int main(int argc, char *argv[])
 							printf("Number of objects in the block: %d\n", p_nobjs);
 							printf("(x,y) after accounting for offsets: %d, %d\n", offset_X, offset_Y);
 							for (k=0; k<p_nobjs; k++){
-								float x = p_objs[AVX_CACHE*k+BIT_X] - BLOCK/2 - offset_X;
-								float y = p_objs[AVX_CACHE*k+BIT_Y] - BLOCK/2 - offset_Y;
+								float x = p_objs[AVX_CACHE*k+BIT_X] - (BLOCK/2) - offset_X;
+								float y = p_objs[AVX_CACHE*k+BIT_Y] - (BLOCK/2) - offset_Y;
 								printf("objs %2d: %.1f, %.1f\n", k, x, y);
 							}
 						}
@@ -417,7 +418,7 @@ int main(int argc, char *argv[])
 
 						// flux values
 						float pf = proposed_flux[k];
-						float cf = current_flux[k];
+						float cf = -current_flux[k];
 
 						// Compute dX * f
 						current_dX_T[k] = cf; // 1
@@ -464,8 +465,8 @@ int main(int argc, char *argv[])
 					// Note that the integer x, y positions are in block position.
 					__attribute__((aligned(64))) int ix[MAXCOUNT_BLOCK * 2];
 					__attribute__((aligned(64))) int iy[MAXCOUNT_BLOCK * 2];
-					int idx_row = ibx * BLOCK + offset_X + BLOCK/2; // BLOCK/2 is for the padding.
-					int idx_col = iby * BLOCK + offset_Y + BLOCK/2;
+					int idx_row = ibx * BLOCK + offset_X + (BLOCK/2); // BLOCK/2 is for the padding.
+					int idx_col = iby * BLOCK + offset_Y + (BLOCK/2);
 					#pragma omp simd
 					for (k=0; k<p_nobjs; k++){
 						ix[k] = current_ix[k] - idx_row;
@@ -497,15 +498,15 @@ int main(int argc, char *argv[])
 					__attribute__((aligned(64))) float data[BLOCK * BLOCK];
 
 					#pragma omp simd
-					for (l=0; l<BLOCK; l++){						
+					for (l=0; l<BLOCK; l++){
 						for (k=0; k<BLOCK; k++){
 							model_proposed[l*BLOCK + k] = MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];
-							data[l*BLOCK + k] = DATA[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];								
+							data[l*BLOCK + k] = DATA[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];
 						}
 					}
 
 			
-					// ----- Compute the original likelihood based on the current model. ----- //
+					// // ----- Compute the original likelihood based on the current model. ----- //
 					__attribute__((aligned(64))) float loglike_temp[BLOCK];					
 					float b_loglike = 0;// Original block likelihood
 					float p_loglike = 0; // Proposed move's loglikehood
@@ -557,7 +558,7 @@ int main(int argc, char *argv[])
 					// 1 or 2, there should be no problem. 
 					#pragma omp simd // Explicit vectorization
 				    for (k=0; k<BLOCK*BLOCK; k++) { hash[k] = -1; }
-				    	
+
 				    int jstar = 0; // Number of stars after coalescing.
 					int istar;
 					int xx, yy;
@@ -567,7 +568,7 @@ int main(int argc, char *argv[])
 				        yy = iy[istar];
 				        #if DEBUG
 					        if (block_ID==BLOCK_ID_DEBUG){
-					        	printf("%d, %d, %d, %d\n", ix[istar], iy[istar], xx, yy);				        	
+					        	printf("objs %d: %d, %d, %d, %d\n", istar, ix[istar], iy[istar], xx, yy);				        	
 					        }
 				        	printf("\n");					        
 					    #endif
@@ -580,26 +581,27 @@ int main(int argc, char *argv[])
 				            hash[idx] = jstar;
 				            #pragma omp simd // Compiler knows how to unroll.
 				            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] = dX[istar*AVX_CACHE2+l]; }
-				            ix[jstar] = ix[istar];
-				            iy[jstar] = iy[istar];
+				            ix[jstar] = xx;
+				            iy[jstar] = yy;
 				            jstar++;
 				        }
 				    }
 
-					// row and col location of the star based on X, Y values.
-					// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
-					// Calculate PSF and then add to model proposed
-					for (k=0; k<jstar; k++){
-						idx_row = (MARGIN1 + MARGIN2) + p_X[k];
-						idx_col = (MARGIN1 + MARGIN2) + p_Y[k];							
-						#pragma omp simd
-						for (l=0; l<NPIX2; l++){
-							for (m=0; m<INNER; m++){
-								// AVX_CACHE_VERSION
-								model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK + (idx_col+(l%NPIX)-NPIX_div2)] += p_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-							} 
-						}// End of PSF calculation for K-th star
-					}
+					// // row and col location of the star based on X, Y values.
+					// // Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
+					// // Calculate PSF and then add to model proposed
+					// for (k=0; k<jstar; k++){
+					// 	idx_row = 15;// ix[k]; // Note that ix and iy are already within block position.
+					// 	idx_col = 15; //iy[k];
+					// 	printf("%d, %d\n", idx_row, idx_col);
+					// 	#pragma omp simd
+					// 	for (l=0; l<NPIX2; l++){
+					// 		for (m=0; m<INNER; m++){
+					// 			// AVX_CACHE_VERSION
+					// 			model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK + (idx_col+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+					// 		} 
+					// 	}// End of PSF calculation for K-th star
+					// }
 
 
 					// // // ----- Compute the new likelihood ----- //
