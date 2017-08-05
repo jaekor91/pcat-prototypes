@@ -40,7 +40,10 @@
 
 #define DEBUG 1 // Set to 1 only when debugging
 #if DEBUG
-	#define NITER 1
+	// General strategy
+	// One thread, one block, one iteration
+	// One thread, one block, multiplie iterations
+	#define NITER 4
 	#define NITER_BURNIN 0
 	#define MAX_STARS 100
 	#define BLOCK_ID_DEBUG 0
@@ -248,7 +251,7 @@ int main(int argc, char *argv[])
 		// IMPORTANT: X is the row direction and Y is the column direction.
 		time_seed = (int) (time(NULL)) * rand();		
 		int ibx, iby; // Block idx		
-		#pragma omp parallel
+		#pragma omp parallel shared(MODEL, DATA, OBJS_IN_BLOCK)
 		{
 			// Recall that we only consider the center blocks. That's where the extra 1 come from
 			#pragma omp for collapse(2) 
@@ -634,7 +637,7 @@ int main(int argc, char *argv[])
 				// printf("End of Block %d computation.\n\n", block_ID);
 				} // End of y block loop
 			} // End of x block loop
-			// printf("-------- End of iteration %d --------\n\n", j);
+			printf("-------- End of iteration %d --------\n\n", j);
 		}// End of OMP parallel section
 
 
