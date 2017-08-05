@@ -27,25 +27,26 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 4
+#define NUM_BLOCKS_PER_DIM 1
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT 8 // Max number of objects to be "collected" by each thread when computing block id for each object.
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region.
 #define INCREMENT 1 // Block loop increment
 #define BYTES 4 // Number of byte for int and float.
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK)) 
-#define MAX_STARS 5 //(STAR_DENSITY_PER_BLOCK * (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define DATA_WIDTH (NUM_BLOCKS_PER_DIM * BLOCK)
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define DEBUG 1 // Set to 1 only when debugging
+#define DEBUG 0 // Set to 1 only when debugging
 #if DEBUG
 	#define NITER 1
 	#define NITER_BURNIN 0
+	#define MAX_STARS 100
 #else
 	#define NITER_BURNIN 1000// Number of burn-in to perform
 	#define NITER (1000+NITER_BURNIN) // Number of iterations
+#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #endif 
 
 // Bit number of objects within 
@@ -184,7 +185,7 @@ int main(int argc, char *argv[])
 		int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
 		#if DEBUG
-			printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
+			printf("Offset X, Y: %d, %d\n\n", offset_X, offset_Y);
 		#endif
 	
 
@@ -228,14 +229,14 @@ int main(int argc, char *argv[])
 					int b_id = (b_idx * NUM_BLOCKS_PER_DIM) + b_idy; // Compute block id of the object.
 					OBJS_IN_BLOCK[MAXCOUNT * (max_num_threads * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
 					BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]+=1; // Update the counts
-					// #if DEBUG
-					// 	printf("OBJS x/y after cut: %d/%d\n", x, y);								
-					// 	printf("OBJS number: %d\n", i);
-					// 	printf("Block count: %d\n", BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]);					
-					// 	printf("b_id x/y: %d, %d\n", b_idx, b_idy);
-					// 	printf("x/y_in_block: %d, %d\n", x_in_block, y_in_block);				
-					// 	printf("OBJS_BID: %d\n\n", b_id);							
-					// #endif
+					#if DEBUG
+						printf("OBJS x/y after cut: %d/%d\n", x, y);
+						printf("x/y_in_block: %d, %d\n", x_in_block, y_in_block);										
+						printf("OBJS number: %d\n", i);
+						printf("Block count: %d\n", BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]);					
+						printf("b_id x/y: %d, %d\n", b_idx, b_idy);
+						printf("OBJS_BID: %d\n\n", b_id);							
+					#endif
 				}//	
 
 			}
@@ -295,6 +296,7 @@ int main(int argc, char *argv[])
 								printf("objs %2d: %.1f, %.1f\n", k, x, y);
 							}
 						}
+						printf("\n");
 					#endif
 
 					// ----- Gather operation for the current values ----- //
@@ -464,10 +466,19 @@ int main(int argc, char *argv[])
 					}
 					// Since the arrays were coalesced
 					p_nobjs *= 2;
-					for (k=0; k<p_nobjs; k++){
-						printf("%d, %d\n", ix[k], iy[k]);
-					}
-					printf("Printed all objs.\n");
+
+					#if DEBUG 
+						if (block_ID == 0){
+							for (k=0; k<p_nobjs; k++){
+								printf("%d, %d\n", ix[k], iy[k]);
+							}
+							printf("Printed all objs.\n");
+						}
+					#endif 
+
+
+
+
 
 					// Step strategy: Read in the current model, calculate the loglike, 
 					// directly insert PSF, calculate loglike again and comapre
@@ -540,11 +551,12 @@ int main(int argc, char *argv[])
 				    {
 				        xx = ix[istar];
 				        yy = iy[istar];
-				        //Debug
-				        if (block_ID==0){
-				        	printf("%d, %d\n", ix[istar], iy[istar]);				        	
-				        	printf("%d, %d\n\n", xx, yy);
-				        }
+				        #if DEBUG
+					        if (block_ID==0){
+					        	printf("%d, %d, %d, %d\n", ix[istar], iy[istar], xx, yy);				        	
+					        }
+				        	printf("\n");					        
+					    #endif
 				        int idx = xx*BLOCK+yy;
 				        if (hash[idx] != -1) {
 				        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
