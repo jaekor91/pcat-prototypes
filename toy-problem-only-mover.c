@@ -151,13 +151,12 @@ int main(int argc, char *argv[])
 
 
 	// Image DATA, MODEL, design matrix
-	int size_of_DATA = IMAGE_SIZE; // Bigger than data size 
 	int size_of_A = NPIX2 * INNER;
-	__attribute__((aligned(64))) float DATA[size_of_DATA]; // Generate positive test data. 64 bytes aligned.
-	__attribute__((aligned(64))) float MODEL[size_of_DATA]; // Allocate model image. 64 bytes aligned.
+	__attribute__((aligned(64))) float DATA[IMAGE_SIZE]; // Generate positive test data. 64 bytes aligned.
+	__attribute__((aligned(64))) float MODEL[IMAGE_SIZE]; // Allocate model image. 64 bytes aligned.
 	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix
-	init_mat_float(DATA, size_of_DATA, 0.0, 1); // Fill data with random values
-	init_mat_float(MODEL, size_of_DATA, 0.0, 0); // Fill data with zero values
+	init_mat_float(DATA, IMAGE_SIZE, 0.0, 1); // Fill data with random values
+	init_mat_float(MODEL, IMAGE_SIZE, 0.0, 0); // Fill data with zero values
 	init_mat_float(A, size_of_A, 0.0, 1); // Fill data with random values
 
 
