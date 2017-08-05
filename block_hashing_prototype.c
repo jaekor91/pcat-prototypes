@@ -19,6 +19,7 @@
 #define AVX_CACHE 16 // Number of floats that can fit into AVX512
 #define AVX_CACHE2 16
 #define NPIX_div2 12
+#define INNER 10
 #define MARGIN1 0 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 8 // Core proposal region 
@@ -417,14 +418,15 @@ int main(int argc, char *argv[])
 						proposed_dX_T[MAXCOUNT_BLOCK * 9+ k] = dcy * dcy * dcy * pf; 
 					}
 					
-
-					// float current_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
-					// float proposed_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
-
-					// for (k=0; k < p_nobjs; k++){
-
-					// }
-
+					// Transposing the matrices: dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] to dX [MAXCOUNT, AVX_CACHE2]
+					float current_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
+					float proposed_dX[AVX_CACHE2 * MAXCOUNT_BLOCK];
+					for (k=0; k<p_nobjs; k++){
+						for (l=0; l<INNER; l++){
+							current_dX[k*AVX_CACHE2+l] = current_dX_T[MAXCOUNT_BLOCK*l+k];
+							proposed_dX[k*AVX_CACHE2+l] = proposed_dX_T[MAXCOUNT_BLOCK*l+k];							
+						}
+					}
 					
 
 				// printf("End of Block %d computation.\n\n", block_ID);
