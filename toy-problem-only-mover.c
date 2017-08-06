@@ -27,7 +27,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 8
+#define NUM_BLOCKS_PER_DIM 2
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
@@ -40,7 +40,7 @@
 #define DATA_SIZE (DATA_WIDTH * DATA_WIDTH)
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define DEBUG 0// Set to 1 only when debugging
+#define DEBUG 1// Set to 1 only when debugging
 #define BLOCK_ID_DEBUG 2
 #if DEBUG
 	// General strategy
@@ -675,9 +675,9 @@ int main(int argc, char *argv[])
 							#endif 
 
 							for (k=0; k < p_nobjs; k++){
-								printf("Begun accessing obj_num\n");								
+								// printf("Begun accessing obj_num\n");	Debug
 								int obj_num = p_objs_idx[k];
-								printf("Accessed obj_num\n");
+								// printf("Accessed obj_num\n"); Debug
 								int idx =  obj_num * AVX_CACHE;
 								float px = proposed_x[k];
 								float py = proposed_y[k];
@@ -688,29 +688,29 @@ int main(int argc, char *argv[])
 								else{
 									printf("Object number equal or greater than the maximum.\n");											
 								}								
-								// #if DEBUG
-									// if (block_ID == BLOCK_ID_DEBUG){
+								#if DEBUG
+									if (block_ID == BLOCK_ID_DEBUG){
 										float x = px - (BLOCK/2) - offset_X;
 										float y = py - (BLOCK/2) - offset_Y;			
 										float x_in_block = x - ibx * BLOCK;
 										float y_in_block = y - iby * BLOCK;								
-										printf("OBJS number: %d\n", obj_num);							
-										printf("Block id x,y: %d, %d\n", ibx, iby);
-										printf("x,y before adjustment: %.3f, %.3f\n", px, py);
-										printf("x,y after adjustment: %.3f, %.3f\n", x, y);
-										printf("x,y in block: %.3f, %.3f\n", x_in_block, y_in_block);							
-										printf("idx: %d\n", idx);
-										printf("Thread num: %d\n", omp_get_thread_num());
-									// }	
-								// #endif								
-								printf("Original x %.3f\n", OBJS[idx + BIT_X]);
-								printf("Original y %.3f\n", OBJS[idx + BIT_Y]);
-								printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);																
+										// printf("OBJS number: %d\n", obj_num);							
+										// printf("Block id x,y: %d, %d\n", ibx, iby);
+										// printf("x,y before adjustment: %.3f, %.3f\n", px, py);
+										// printf("x,y after adjustment: %.3f, %.3f\n", x, y);
+										// printf("x,y in block: %.3f, %.3f\n", x_in_block, y_in_block);							
+										// printf("idx: %d\n", idx);
+										// printf("Thread num: %d\n", omp_get_thread_num());
+										// printf("Original x %.3f\n", OBJS[idx + BIT_X]);
+										// printf("Original y %.3f\n", OBJS[idx + BIT_Y]);
+										// printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);				
+										// printf("\n");								
+									}	
+								#endif				
 								OBJS[idx + BIT_X] = px;
 								OBJS[idx + BIT_Y] = py;
 								OBJS[idx + BIT_FLUX] = pf;
-								printf("Finished depositing.\n");
-								printf("\n");								
+								// printf("Finished depositing.\n");
 							}						
 						}// end of proposal accept/reject}
 
