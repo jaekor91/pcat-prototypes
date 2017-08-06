@@ -29,7 +29,7 @@
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_PER_DIM 8
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
-#define MAXCOUNT_BLOCK 64 // Maximum number of objects expected to be found in a proposal region. 
+#define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
 							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
 #define INCREMENT 1 // Block loop increment
@@ -37,9 +37,11 @@
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define DATA_WIDTH (NUM_BLOCKS_PER_DIM * BLOCK)
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
+#define DATA_SIZE (DATA_WIDTH * DATA_WIDTH)
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define DEBUG 1// Set to 1 only when debugging
+#define DEBUG 0// Set to 1 only when debugging
+#define BLOCK_ID_DEBUG 2
 #if DEBUG
 	// General strategy
 	// One thread, one block, one iteration
@@ -48,10 +50,9 @@
 	#define NITER 1000
 	#define NITER_BURNIN 0
 	#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-	#define BLOCK_ID_DEBUG 2
 #else
 	#define NITER_BURNIN 1000// Number of burn-in to perform
-	#define NITER (10000+NITER_BURNIN) // Number of iterations
+	#define NITER (1000+NITER_BURNIN) // Number of iterations
 	#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #endif 
 
@@ -133,6 +134,7 @@ int main(int argc, char *argv[])
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_TOTAL);
 	printf("MAX_STARS: %d\n", MAX_STARS);	
+	printf("Obj density: %.2f per pixel\n", (float) MAX_STARS/ (float) DATA_SIZE);
 	int stack_size = kmp_get_stacksize_s() / 1e06;
 	printf("Stack size being used: %dMB\n", stack_size);	
 	printf("Number of processors available: %d\n", omp_get_num_procs());
@@ -275,9 +277,9 @@ int main(int argc, char *argv[])
 		// Iterating through all the blocks.
 		// IMPORTANT: X is the row direction and Y is the column direction.
 		time_seed = (int) (time(NULL)) * rand();		
-		int ibx, iby; // Block idx		
-		#pragma omp parallel shared(MODEL, DATA, OBJS_HASH)
+		#pragma omp parallel shared(MODEL, DATA, OBJS_HASH, OBJS) 
 		{
+			int ibx, iby; // Block idx
 			// Recall that we only consider the center blocks. That's where the extra 1 come from
 			#pragma omp for collapse(2) 
 			for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction				
@@ -542,7 +544,6 @@ int main(int argc, char *argv[])
 							loglike_temp[k] = 0;
 						}
 
-						int idx;
 						// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
 						int l_min = 0;
 						int l_max = BLOCK;
@@ -564,7 +565,7 @@ int main(int argc, char *argv[])
 						#pragma omp simd
 						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 							for (m = m_min; m < m_max; m++){
-								idx = l*BLOCK+m;
+								int idx = l*BLOCK+m;
 								// Poisson likelihood
 								float tmp = model_proposed[idx];
 								float f = log(tmp);
@@ -632,7 +633,7 @@ int main(int argc, char *argv[])
 						#pragma omp simd
 						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 							for (m = m_min; m < m_max; m++){
-								idx = l*BLOCK+m;
+								int idx = l*BLOCK+m;
 								// Poisson likelihood
 								float tmp = model_proposed[idx];
 								float f = log(tmp);
@@ -674,29 +675,45 @@ int main(int argc, char *argv[])
 							#endif 
 
 							for (k=0; k < p_nobjs; k++){
-								idx = p_objs_idx[k] * AVX_CACHE;
+								printf("Begun accessing obj_num\n");								
+								int obj_num = p_objs_idx[k];
+								printf("Accessed obj_num\n");
+								int idx =  obj_num * AVX_CACHE;
 								float px = proposed_x[k];
 								float py = proposed_y[k];
 								float pf = proposed_flux[k];
-								#if DEBUG
-									if (block_ID == BLOCK_ID_DEBUG){
+								if (obj_num < MAX_STARS){
+									// printf("Object number smaller than the maximum.\n");
+								}
+								else{
+									printf("Object number equal or greater than the maximum.\n");											
+								}								
+								// #if DEBUG
+									// if (block_ID == BLOCK_ID_DEBUG){
 										float x = px - (BLOCK/2) - offset_X;
 										float y = py - (BLOCK/2) - offset_Y;			
 										float x_in_block = x - ibx * BLOCK;
 										float y_in_block = y - iby * BLOCK;								
-										printf("OBJS number: %d\n", p_objs_idx[k]);							
+										printf("OBJS number: %d\n", obj_num);							
 										printf("Block id x,y: %d, %d\n", ibx, iby);
-										printf("x,y before adjustment: %.1f, %.1f\n", px, py);
-										printf("x,y after adjustment: %.3f, %.1f\n", x, y);
+										printf("x,y before adjustment: %.3f, %.3f\n", px, py);
+										printf("x,y after adjustment: %.3f, %.3f\n", x, y);
 										printf("x,y in block: %.3f, %.3f\n", x_in_block, y_in_block);							
-										printf("\n");
-									}	
-								#endif								
+										printf("idx: %d\n", idx);
+										printf("Thread num: %d\n", omp_get_thread_num());
+									// }	
+								// #endif								
+								printf("Original x %.3f\n", OBJS[idx + BIT_X]);
+								printf("Original y %.3f\n", OBJS[idx + BIT_Y]);
+								printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);																
 								OBJS[idx + BIT_X] = px;
 								OBJS[idx + BIT_Y] = py;
 								OBJS[idx + BIT_FLUX] = pf;
+								printf("Finished depositing.\n");
+								printf("\n");								
 							}						
 						}// end of proposal accept/reject}
+
 					}// End of a step
 				// printf("End of Block %d computation.\n\n", block_ID);
 				} // End of y block loop
