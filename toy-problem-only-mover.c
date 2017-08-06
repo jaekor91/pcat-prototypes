@@ -721,7 +721,7 @@ int main(int argc, char *argv[])
 
 		// Print the x, y, f of a particular particle
 
-		int idx_ref = 200 * AVX_CACHE;
+		int idx_ref = (MAX_STARS-1) * AVX_CACHE;
 		printf("%d: (x, y, f) = (%.3f,  %.3f,  %.3f)\n", j, OBJS[idx_ref + BIT_X], OBJS[idx_ref + BIT_Y], OBJS[idx_ref + BIT_FLUX]);
 		printf("\n");
 
