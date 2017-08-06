@@ -27,14 +27,14 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 4
+#define NUM_BLOCKS_PER_DIM 8
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
-#define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
+#define MAXCOUNT_BLOCK 64 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
 							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
 #define INCREMENT 1 // Block loop increment
 #define BYTES 4 // Number of byte for int and float.
-#define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 100
+#define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define DATA_WIDTH (NUM_BLOCKS_PER_DIM * BLOCK)
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
@@ -45,13 +45,13 @@
 	// One thread, one block, one iteration
 	// One thread, one block, multiplie iterations
 	// One thread, multiple blocks, multiplie iterations
-	#define NITER 1
+	#define NITER 1000
 	#define NITER_BURNIN 0
-	#define MAX_STARS 2000
-	#define BLOCK_ID_DEBUG 4
+	#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+	#define BLOCK_ID_DEBUG 2
 #else
 	#define NITER_BURNIN 1000// Number of burn-in to perform
-	#define NITER (1000+NITER_BURNIN) // Number of iterations
+	#define NITER (10000+NITER_BURNIN) // Number of iterations
 	#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #endif 
 
@@ -227,9 +227,9 @@ int main(int argc, char *argv[])
 		#pragma omp parallel shared(BLOCK_COUNT_THREAD)
 		{
 			int i;
-			int t_id = omp_get_thread_num(); // Get thread number			
 			#pragma omp for
 			for (i=0; i<MAX_STARS; i++){
+				int t_id = omp_get_thread_num(); // Get thread number			
 
 				// Get x, y of the object.
 				// Offset is for the mesh offset.
@@ -318,7 +318,7 @@ int main(int argc, char *argv[])
 						// Debug: Looking at objects selected for change. Must mach objects
 						#if DEBUG
 							if (block_ID==BLOCK_ID_DEBUG){
-								printf("*** After collection in the block.\n");
+								printf("\n*** After collection in the block ***\n");
 								printf("BID: %d\n", block_ID);								
 								printf("Number of objects in the block: %d\n", p_nobjs);
 								for (k=0; k<p_nobjs; k++){
@@ -336,8 +336,7 @@ int main(int argc, char *argv[])
 									printf("\n");
 								}																	
 							}
-						#endif
-
+						#endif	
 						// ----- Gather operation for the current values ----- //
 						// For simd computation later.
 						__attribute__((aligned(64))) float current_flux[MAXCOUNT_BLOCK];
@@ -669,32 +668,44 @@ int main(int argc, char *argv[])
 							p_nobjs = p_nobjs/2; // Only proposal objects gets 
 							#if DEBUG
 								if (block_ID == BLOCK_ID_DEBUG){
+									printf("\n\n**** Accepted changes ****\n");
 									printf("Number of stars to be updated: %d\n", p_nobjs);
 								}
 							#endif 
+
 							for (k=0; k < p_nobjs; k++){
+								idx = p_objs_idx[k] * AVX_CACHE;
+								float px = proposed_x[k];
+								float py = proposed_y[k];
+								float pf = proposed_flux[k];
 								#if DEBUG
 									if (block_ID == BLOCK_ID_DEBUG){
-										printf("Obj #: %3d\n", p_objs_idx[k]);
-									}
-								#endif 
-								idx = p_objs_idx[k] * AVX_CACHE;
-								OBJS[idx + BIT_X] = proposed_x[k];
-								OBJS[idx + BIT_Y] = proposed_y[k];
-								OBJS[idx + BIT_FLUX] = proposed_flux[k];								
+										float x = px - (BLOCK/2) - offset_X;
+										float y = py - (BLOCK/2) - offset_Y;			
+										float x_in_block = x - ibx * BLOCK;
+										float y_in_block = y - iby * BLOCK;								
+										printf("OBJS number: %d\n", p_objs_idx[k]);							
+										printf("Block id x,y: %d, %d\n", ibx, iby);
+										printf("x,y before adjustment: %.1f, %.1f\n", px, py);
+										printf("x,y after adjustment: %.3f, %.1f\n", x, y);
+										printf("x,y in block: %.3f, %.3f\n", x_in_block, y_in_block);							
+										printf("\n");
+									}	
+								#endif								
+								OBJS[idx + BIT_X] = px;
+								OBJS[idx + BIT_Y] = py;
+								OBJS[idx + BIT_FLUX] = pf;
 							}						
 						}// end of proposal accept/reject}
-				}// End of a step
-
+					}// End of a step
 				// printf("End of Block %d computation.\n\n", block_ID);
 				} // End of y block loop
 			} // End of x block loop
-
-			#if DEBUG
-				printf("-------- End of iteration %d --------\n\n", j);
-			#endif
 		}// End of OMP parallel section
 
+		#if DEBUG
+			printf("-------- End of iteration %d --------\n\n", j);
+		#endif
 
 		end = omp_get_wtime();
 		// Update time only if burn in has passed.
