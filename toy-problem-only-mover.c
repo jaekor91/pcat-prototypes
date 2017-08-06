@@ -40,7 +40,7 @@
 #define DATA_SIZE (DATA_WIDTH * DATA_WIDTH)
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define DEBUG 1// Set to 1 only when debugging
+#define DEBUG 0// Set to 1 only when debugging
 #define BLOCK_ID_DEBUG 2
 #if DEBUG
 	// General strategy
@@ -713,12 +713,17 @@ int main(int argc, char *argv[])
 								// printf("Finished depositing.\n");
 							}						
 						}// end of proposal accept/reject}
-
 					}// End of a step
 				// printf("End of Block %d computation.\n\n", block_ID);
 				} // End of y block loop
 			} // End of x block loop
 		}// End of OMP parallel section
+
+		// Print the x, y, f of a particular particle
+
+		int idx_ref = 200 * AVX_CACHE;
+		printf("%d: (x, y, f) = (%.3f,  %.3f,  %.3f)\n", j, OBJS[idx_ref + BIT_X], OBJS[idx_ref + BIT_Y], OBJS[idx_ref + BIT_FLUX]);
+		printf("\n");
 
 		#if DEBUG
 			printf("-------- End of iteration %d --------\n\n", j);
