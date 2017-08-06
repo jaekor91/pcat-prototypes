@@ -27,18 +27,20 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 2
+#define NUM_BLOCKS_PER_DIM 4
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
 							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
 #define INCREMENT 1 // Block loop increment
 #define BYTES 4 // Number of byte for int and float.
-#define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define DATA_WIDTH (NUM_BLOCKS_PER_DIM * BLOCK)
 #define PADDED_DATA_WIDTH ((NUM_BLOCKS_PER_DIM+1) * BLOCK) // Extra BLOCK is for padding with haf block on each side
 #define DATA_SIZE (DATA_WIDTH * DATA_WIDTH)
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
+
+#define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
+#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
 #define DEBUG 0// Set to 1 only when debugging
 #define BLOCK_ID_DEBUG 2
@@ -49,12 +51,12 @@
 	// One thread, multiple blocks, multiplie iterations
 	#define NITER 1000
 	#define NITER_BURNIN 0
-	#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #else
 	#define NITER_BURNIN 1000// Number of burn-in to perform
 	#define NITER (1000+NITER_BURNIN) // Number of iterations
-	#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #endif 
+
+
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -156,11 +158,11 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) int BLOCK_COUNT_THREAD[max_num_threads * NUM_BLOCKS_TOTAL]; 
 
 	// ----- Initialize object array ----- //
-	#pragma omp parallel for simd
+	#pragma omp parallel for simd shared(OBJS)
 	for (i=0; i< AVX_CACHE * MAX_STARS; i++){
 		OBJS[i] = -1; // Can't set it to zero since 0 is a valid object number.
 	}
-    #pragma omp parallel 
+    #pragma omp parallel shared(OBJS)
     {
 		int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
 		#pragma omp for
@@ -226,7 +228,7 @@ int main(int argc, char *argv[])
 		// given the offset. If the objects are within the proposal region,
 		// then update the corresponding OBJS_HASH array element. 
 		// Otherwise, do nothing.
-		#pragma omp parallel shared(BLOCK_COUNT_THREAD)
+		#pragma omp parallel shared(BLOCK_COUNT_THREAD, OBJS, OBJS_HASH)
 		{
 			int i;
 			#pragma omp for
@@ -682,12 +684,6 @@ int main(int argc, char *argv[])
 								float px = proposed_x[k];
 								float py = proposed_y[k];
 								float pf = proposed_flux[k];
-								if (obj_num < MAX_STARS){
-									// printf("Object number smaller than the maximum.\n");
-								}
-								else{
-									printf("Object number equal or greater than the maximum.\n");											
-								}								
 								#if DEBUG
 									if (block_ID == BLOCK_ID_DEBUG){
 										float x = px - (BLOCK/2) - offset_X;
@@ -707,9 +703,9 @@ int main(int argc, char *argv[])
 										// printf("\n");								
 									}	
 								#endif				
-								OBJS[idx + BIT_X] = px;
-								OBJS[idx + BIT_Y] = py;
-								OBJS[idx + BIT_FLUX] = pf;
+								// OBJS[idx + BIT_X] = px;
+								// OBJS[idx + BIT_Y] = py;
+								// OBJS[idx + BIT_FLUX] = pf;
 								// printf("Finished depositing.\n");
 							}						
 						}// end of proposal accept/reject}
