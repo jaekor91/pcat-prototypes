@@ -33,7 +33,7 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 10000 // Number of times to loop before sampling
+	#define NLOOP 100 // Number of times to loop before sampling
 	#define NSAMPLE 10// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1 // If 1, print peformance after every sample.
@@ -76,6 +76,7 @@
 
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
+#define TRUE_BACK 179.0
 
 // Some MACRO functions
  #define max(a,b) \
@@ -203,9 +204,9 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) float DATA[IMAGE_SIZE]; // Generate positive test data. 64 bytes aligned.
 	__attribute__((aligned(64))) float MODEL[IMAGE_SIZE]; // Allocate model image. 64 bytes aligned.
 	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix
-	init_mat_float(DATA, IMAGE_SIZE, 0.0, 1); // Fill data with random values
+	init_mat_float(DATA, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with random values
 	init_mat_float(MODEL, IMAGE_SIZE, 0.0, 0); // Fill data with zero values
-	init_mat_float(A, size_of_A, 0.0, 1); // Fill data with random values
+	init_mat_float(A, size_of_A, 0.001, 0); // Fill data with random values
 
 
 
@@ -833,7 +834,22 @@ int main(int argc, char *argv[])
 		dt_per_iter = (dt / (double) NLOOP) * (1e06);
 		#if PRINT_PERF
 			printf("Sample %d: Time per sample (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
-		#endif 
+
+			// ---- Calculate the likelihood based on the curret model ---- //
+			double lnL; // Loglike 
+			#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL)
+			for (i=BLOCK/2; i<((BLOCK/2)+DATA_WIDTH); i++){
+				for (j=BLOCK/2; j<((BLOCK/2)+DATA_WIDTH); j++){
+					int idx = i*PADDED_DATA_WIDTH+j;
+					// Poisson likelihood
+					float tmp = MODEL[idx];
+					float f = log(tmp);
+					float g = f * DATA[idx];
+					lnL += g - tmp;					
+				}// end of column loop
+			} // End of row loop
+			printf("Current lnL: %.3f\n", lnL);
+		#endif
 	} // End of sampling looop
 
 	printf("Sampling ended. Exit program.");
