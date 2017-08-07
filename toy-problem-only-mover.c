@@ -33,10 +33,10 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 1000 // Number of times to loop before sampling
-	#define NSAMPLE 100// Numboer samples to collect
+	#define NLOOP 10000 // Number of times to loop before sampling
+	#define NSAMPLE 10// Numboer samples to collect
 #endif 
-#define PRINT_PERF 0 // If 1, print peformance after every sample.
+#define PRINT_PERF 1 // If 1, print peformance after every sample.
 #define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
 
 
@@ -345,8 +345,8 @@ int main(int argc, char *argv[])
 					if (p_nobjs > 0) // Proceed with the rest only if there are objects in the region.
 					{
 						// ----- Transfer objects (x, y, f) to cache ------ //
+						#pragma omp simd collapse(2)						
 						for (k=0; k<p_nobjs; k++){
-							#pragma omp simd //collapse(2)						
 							for (l=0; l<AVX_CACHE; l++){
 								p_objs[AVX_CACHE*k+l] = OBJS[p_objs_idx[k]*AVX_CACHE+l];
 							}
@@ -593,7 +593,7 @@ int main(int argc, char *argv[])
 						__attribute__((aligned(64))) float model_proposed[BLOCK * BLOCK];
 						__attribute__((aligned(64))) float data[BLOCK * BLOCK];
 
-						#pragma omp simd
+						#pragma omp simd collapse(2)
 						for (l=0; l<BLOCK; l++){
 							for (k=0; k<BLOCK; k++){
 								model_proposed[l*BLOCK + k] = MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];
@@ -635,7 +635,7 @@ int main(int argc, char *argv[])
 						// 		printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
 						// 	}
 						// #endif	
-						#pragma omp simd
+						#pragma omp simd collapse(2)
 						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 							for (m = m_min; m < m_max; m++){
 								int idx = l*BLOCK+m;
@@ -699,7 +699,7 @@ int main(int argc, char *argv[])
 							#if SERIAL_DEBUG
 								printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
 							#endif
-							#pragma omp simd
+							#pragma omp simd collapse(2)
 							for (l=0; l<NPIX2; l++){
 								for (m=0; m<INNER; m++){
 									// AVX_CACHE_VERSION
@@ -720,7 +720,7 @@ int main(int argc, char *argv[])
 							printf("Re-initialize the loglike.\n");
 						#endif						
 
-						#pragma omp simd
+						#pragma omp simd collapse(2)
 						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 							for (m = m_min; m < m_max; m++){
 								int idx = l*BLOCK+m;
@@ -755,7 +755,7 @@ int main(int argc, char *argv[])
 							idx_col = iby * BLOCK + offset_Y + BLOCK/2; 
 						 	// Note that since padded region is never considered for loglike calculation,
 							// there is no need worry about them as we update the image.
-							#pragma omp simd
+							#pragma omp simd collapse(2)
 							for (l=0; l<BLOCK; l++){
 								for (k=0; k<BLOCK; k++){
 									 MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)] = model_proposed[l*BLOCK + k];
