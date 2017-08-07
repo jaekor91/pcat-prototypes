@@ -205,6 +205,7 @@ int main(int argc, char *argv[])
 			OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
 			float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
 			OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
 		}
 	}
 	// Initialize hashing variable	
