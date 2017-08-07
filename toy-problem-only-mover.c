@@ -33,11 +33,11 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 1000 // Number of times to loop before sampling
-	#define NSAMPLE 2// Numboer samples to collect
+	#define NLOOP 10000 // Number of times to loop before sampling
+	#define NSAMPLE 10// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1 // If 1, print peformance after every sample.
-
+#define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
 
 
 // Define global dimensions
@@ -66,7 +66,6 @@
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-
 
 
 
@@ -738,8 +737,13 @@ int main(int argc, char *argv[])
 						
 					
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
-						// If bigger then undo the addition by subtracting what was added to the model image.						
-						if (0){ // Currently, use flip coin.
+						// If bigger then undo the addition by subtracting what was added to the model image.
+						#if RANDOM_WALK
+							if (0) // Short circuit so that the proposed changes are always accpeted.
+						#else
+							if (b_loglike < p_loglike)
+						#endif
+						{
 							// If the proposed model is rejected. Do nothing.
 						}
 						else{
