@@ -42,6 +42,7 @@
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
+#define NUM_THREADS 4 // Number of threads used for execution.
 #define DEBUG 0// Set to 1 only when debugging
 #define BLOCK_ID_DEBUG 2
 #if DEBUG
@@ -140,8 +141,7 @@ int main(int argc, char *argv[])
 	int stack_size = kmp_get_stacksize_s() / 1e06;
 	printf("Stack size being used: %dMB\n", stack_size);	
 	printf("Number of processors available: %d\n", omp_get_num_procs());
-	int max_num_threads = omp_get_max_threads();
-	printf("Number of max threads: %d\n", max_num_threads);
+	printf("Number of thread used: %d\n", NUM_THREADS);
 
 
 	srand(123); // Initializing random seed for the whole program.
@@ -153,9 +153,9 @@ int main(int argc, char *argv[])
 	// Object array. Each object gets AVX_CACHE space or 16 floats.
 	__attribute__((aligned(64))) float OBJS[AVX_CACHE * MAX_STARS];
 	// Array that tells which objects belong which arrays. See below for usage.
-	__attribute__((aligned(64))) int OBJS_HASH[MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL]; 
+	__attribute__((aligned(64))) int OBJS_HASH[MAXCOUNT * NUM_THREADS * NUM_BLOCKS_TOTAL]; 
 	// Block counter for each thread
-	__attribute__((aligned(64))) int BLOCK_COUNT_THREAD[max_num_threads * NUM_BLOCKS_TOTAL]; 
+	__attribute__((aligned(64))) int BLOCK_COUNT_THREAD[NUM_THREADS * NUM_BLOCKS_TOTAL]; 
 
 	// ----- Initialize object array ----- //
 	#pragma omp parallel for simd shared(OBJS)
@@ -164,7 +164,7 @@ int main(int argc, char *argv[])
 	}
     #pragma omp parallel shared(OBJS)
     {
-		int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
+		unsigned int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
 		#pragma omp for
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i*AVX_CACHE;
@@ -175,7 +175,7 @@ int main(int argc, char *argv[])
 	}
 	// Initialize hashing variable	
 	#pragma omp parallel for simd shared(OBJS_HASH)
-	for (i=0; i< MAXCOUNT * max_num_threads * NUM_BLOCKS_TOTAL; i++){
+	for (i=0; i< MAXCOUNT * NUM_THREADS * NUM_BLOCKS_TOTAL; i++){
 		OBJS_HASH[i] = -1; // Can't set it to zero since 0 is a valid object number.
 	}	
 
@@ -217,7 +217,7 @@ int main(int argc, char *argv[])
 
 		// ------ Set the counter to zero ------ //
 		#pragma omp parallel for simd shared(BLOCK_COUNT_THREAD)
-		for (i=0; i < max_num_threads * NUM_BLOCKS_TOTAL; i++){
+		for (i=0; i < NUM_THREADS * NUM_BLOCKS_TOTAL; i++){
 			BLOCK_COUNT_THREAD[i] = 0;
 		}
 
@@ -228,7 +228,7 @@ int main(int argc, char *argv[])
 		// given the offset. If the objects are within the proposal region,
 		// then update the corresponding OBJS_HASH array element. 
 		// Otherwise, do nothing.
-		#pragma omp parallel shared(BLOCK_COUNT_THREAD, OBJS, OBJS_HASH)
+		#pragma omp parallel default(none) shared(BLOCK_COUNT_THREAD, OBJS, OBJS_HASH, offset_X, offset_Y)
 		{
 			int i;
 			#pragma omp for
@@ -255,7 +255,7 @@ int main(int argc, char *argv[])
 					(x_in_block < (MARGIN1+MARGIN2+REGION)) & (y_in_block < (MARGIN1+MARGIN2+REGION)))
 				{
 					int b_id = (b_idx * NUM_BLOCKS_PER_DIM) + b_idy; // Compute block id of the object.
-					OBJS_HASH[MAXCOUNT * (max_num_threads * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
+					OBJS_HASH[MAXCOUNT * (NUM_THREADS * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
 					BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]+=1; // Update the counts
 					#if DEBUG
 						if (b_id == BLOCK_ID_DEBUG)
@@ -280,7 +280,7 @@ int main(int argc, char *argv[])
 		// IMPORTANT: X is the row direction and Y is the column direction.
 		time_seed = (int) (time(NULL)) * rand();	
 		int ibx, iby; // Block idx	
-		#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, max_num_threads, time_seed, offset_X, offset_Y, A) \
+		#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
 			private(ibx, iby)
 		for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction				
 			for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction
@@ -297,8 +297,8 @@ int main(int argc, char *argv[])
 
 				// Sift through the relevant regions of OBJS_HASH to find objects that belong to the
 				// proposal region of the block.
-				int start_idx = block_ID * MAXCOUNT * max_num_threads;
-				for (k=0; k < (MAXCOUNT * max_num_threads); k++){
+				int start_idx = block_ID * MAXCOUNT * NUM_THREADS;
+				for (k=0; k < (MAXCOUNT * NUM_THREADS); k++){
 					int tmp = OBJS_HASH[start_idx+k]; // See if an object is deposited.
 					if (tmp>-1){ // if yes, then collect it.
 						p_objs_idx[p_nobjs] = tmp;
@@ -352,7 +352,7 @@ int main(int argc, char *argv[])
 
 					// ------ Draw unit normal random numbers to be used. ------- //
 					// 3 * p_nobjs random normal number for f, x, y.
-					int p_seed = time_seed * (1+t_id); // Note that this seeding is necessary					
+					unsigned int p_seed = time_seed * (1+t_id); // Note that this seeding is necessary					
 					__attribute__((aligned(64))) float randn[4 * MAXCOUNT_BLOCK]; // 4 since the alogrithm below generates two random numbers at a time
 													// I may be generating way more than necessary.
 					#pragma omp simd
