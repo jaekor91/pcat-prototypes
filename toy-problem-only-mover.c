@@ -35,8 +35,8 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 10000 // Number of times to loop before sampling
-	#define NSAMPLE 500// Numboer samples to collect
+	#define NLOOP 1000 // Number of times to loop before sampling
+	#define NSAMPLE 10// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
 	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
 	printf("Number of sample to collect: %d\n", NSAMPLE);
 	printf("Thinning rate: %d\n", NLOOP);
-	printf("Total number of parallel iterations: %.2f K\n", (NSAMPLE * NLOOP) / (1e03));
+	printf("Total number of parallel iterations: %d, (%d K)\n", (NSAMPLE * NLOOP), (NSAMPLE * NLOOP) / (1e03));
 	printf("Total number of serial iterations: %.2f M\n", (NSAMPLE * NLOOP * NUM_BLOCKS_TOTAL) / (1e06));
 	printf("Block width: %d\n", BLOCK);
 	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
@@ -827,12 +827,13 @@ int main(int argc, char *argv[])
 			#endif
 
 			end = omp_get_wtime();
-		} // End of PER SAMPLE loop
-		dt = end - start; // Compute time took for sampling
-		// Calculatin the time took.
+		} // End of parallel iteration loop
+		dt = end - start; // Compute time for NLOOP iterations
 		dt_per_iter = (dt / (double) NLOOP) * (1e06);
 
 		#if COMPUTE_LOGLIKE
+			double dt_loglike = -omp_get_wtime();
+
 			// ---- Calculate the likelihood based on the curret model ---- //
 			double lnL = 0; // Loglike 
 			double model_sum = 0; // Sum of all model values w/o padding
@@ -850,19 +851,12 @@ int main(int argc, char *argv[])
 					data_sum += DATA[idx];
 				}// end of column loop
 			} // End of row loop
-		#endif
 
-		#if PRINT_PERF
-			printf("Sample %d: Time per sample (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
-			#if COMPUTE_LOGLIKE
-				printf("Current lnL: %.3f\n", lnL);
-				printf("Current Model sum: %.3f\n", model_sum);
-				printf("Current Data sum: %.3f\n", data_sum);
-				printf("\n");
-			#endif
+			dt_loglike += omp_get_wtime();
 		#endif
 
 		#if SAVE_CHAIN
+			double dt_savechain = -omp_get_wtime();
 			for (i=0; i<MAX_STARS; i++){
 				int idx = i * AVX_CACHE;
 				float x = OBJS[idx + BIT_X];
@@ -875,19 +869,34 @@ int main(int argc, char *argv[])
 			#if COMPUTE_LOGLIKE
 				fwrite(&lnL, sizeof(double), 1, fplnL);
 			#endif
+			dt_savechain += omp_get_wtime();
 		#endif
+
+		#if PRINT_PERF
+			printf("Sample %d: T_parallel (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
+			printf("Time for %d iterations (s): %.3f\n", NLOOP, dt);
+			#if SAVE_CHAIN
+				printf("Time for saving the sample (us): %.3f\n", dt_savechain * 1e06);
+			#endif			
+			#if COMPUTE_LOGLIKE
+				printf("Time for computing loglike (us): %.3f\n", dt_loglike * 1e06);
+				printf("Current lnL: %.3f\n", lnL);
+				printf("Current Model sum: %.3f\n", model_sum);
+				printf("Current Data sum: %.3f\n", data_sum);
+				printf("\n");
+			#endif
+		#endif				
 	} // End of sampling looop
-	printf("Sampling ended. Exit program.\n");
+	printf("Sampling ended.\n");
 
 	// Total time taken
 	dt_total += omp_get_wtime();
-	printf("Total time taken (s): %.2f\n\n ", dt_total);
+	printf("Total time taken (s): %.2f\n\n", dt_total);
 	// Re-print basic parameters of the problem.
 	printf("Reprint of run info.\n");
-	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
 	printf("Number of sample to collect: %d\n", NSAMPLE);
 	printf("Thinning rate: %d\n", NLOOP);
-	printf("Total number of parallel iterations: %.2f K\n", (NSAMPLE * NLOOP) / (1e03));
+	printf("Total number of parallel iterations: %d (%d K)\n", (NSAMPLE * NLOOP), (NSAMPLE * NLOOP) / (1000));
 	printf("Total number of serial iterations: %.2f M\n", (NSAMPLE * NLOOP * NUM_BLOCKS_TOTAL) / (1e06));
 	printf("Block width: %d\n", BLOCK);
 	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
@@ -897,11 +906,11 @@ int main(int argc, char *argv[])
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_TOTAL);
 	printf("MAX_STARS: %d\n", MAX_STARS);	
 	printf("Obj density: %.2f per pixel\n", (float) MAX_STARS/ (float) DATA_SIZE);
-	int stack_size = kmp_get_stacksize_s() / 1e06;
 	printf("Stack size being used: %dMB\n", stack_size);	
 	printf("Number of processors available: %d\n", omp_get_num_procs());
 	printf("Number of thread used: %d\n", NUM_THREADS);	
 
+	printf("\nExit program.\n");	
 	// Close files.
 	fclose(fpx);
 	fclose(fpy);
