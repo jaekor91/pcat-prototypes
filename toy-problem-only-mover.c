@@ -38,7 +38,7 @@
 	#define NLOOP 10000 // Number of times to loop before sampling
 	#define NSAMPLE 500// Numboer samples to collect
 #endif 
-#define PRINT_PERF 0 // If 1, print peformance after every sample.
+#define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
@@ -153,7 +153,6 @@ int main(int argc, char *argv[])
     fpf = fopen("chain_f.bin", "w");
     fplnL = fopen("chain_lnL.bin", "w");
 
-
 	// Print basic parameters of the problem.
 	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
 	printf("Number of sample to collect: %d\n", NSAMPLE);
@@ -226,8 +225,10 @@ int main(int argc, char *argv[])
 
 
 	double start, end, dt, dt_per_iter; // For timing purpose.
+	double dt_total, start_total, end_total; // Measure time taken for the whole run.	
 	dt = 0; // Time accumulator
 
+	dt_total = -omp_get_wtime();
 	printf("\nSampling starts here.\n");
 	for (s=0; s<NSAMPLE; s++){
 		start = omp_get_wtime(); // Timing starts here 		
@@ -878,6 +879,28 @@ int main(int argc, char *argv[])
 	} // End of sampling looop
 	printf("Sampling ended. Exit program.\n");
 
+	// Total time taken
+	dt_total += omp_get_wtime();
+	printf("Total time taken (s): %.2f\n\n ", dt_total);
+	// Re-print basic parameters of the problem.
+	printf("Reprint of run info.\n");
+	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
+	printf("Number of sample to collect: %d\n", NSAMPLE);
+	printf("Thinning rate: %d\n", NLOOP);
+	printf("Total number of parallel iterations: %.2f K\n", (NSAMPLE * NLOOP) / (1e03));
+	printf("Total number of serial iterations: %.2f M\n", (NSAMPLE * NLOOP * NUM_BLOCKS_TOTAL) / (1e06));
+	printf("Block width: %d\n", BLOCK);
+	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
+	printf("Proposal region width: %d\n", REGION);
+	printf("Data width: %d\n", DATA_WIDTH);
+	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
+	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_TOTAL);
+	printf("MAX_STARS: %d\n", MAX_STARS);	
+	printf("Obj density: %.2f per pixel\n", (float) MAX_STARS/ (float) DATA_SIZE);
+	int stack_size = kmp_get_stacksize_s() / 1e06;
+	printf("Stack size being used: %dMB\n", stack_size);	
+	printf("Number of processors available: %d\n", omp_get_num_procs());
+	printf("Number of thread used: %d\n", NUM_THREADS);	
 
 	// Close files.
 	fclose(fpx);
