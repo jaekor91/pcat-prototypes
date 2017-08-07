@@ -35,12 +35,13 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 10000 // Number of times to loop before sampling
-	#define NSAMPLE 10// Numboer samples to collect
+	#define NLOOP 1000 // Number of times to loop before sampling
+	#define NSAMPLE 1000// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1 // If 1, print peformance after every sample.
 #define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
-
+#define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
+#define SAVE_CHAIN 0 // If 1, save the chain for x, y, f, loglike.
 
 // Define global dimensions
 #define AVX_CACHE2 16
@@ -818,9 +819,8 @@ int main(int argc, char *argv[])
 		dt = end - start; // Compute time took for sampling
 		// Calculatin the time took.
 		dt_per_iter = (dt / (double) NLOOP) * (1e06);
-		#if PRINT_PERF
-			printf("Sample %d: Time per sample (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
 
+		#if COMPUTE_LOGLIKE
 			// ---- Calculate the likelihood based on the curret model ---- //
 			double lnL = 0; // Loglike 
 			double model_sum = 0; // Sum of all model values w/o padding
@@ -838,10 +838,16 @@ int main(int argc, char *argv[])
 					data_sum += DATA[idx];
 				}// end of column loop
 			} // End of row loop
-			printf("Current lnL: %.3f\n", lnL);
-			printf("Current Model sum: %.3f\n", model_sum);
-			printf("Current Data sum: %.3f\n", data_sum);
-			printf("\n");
+		#endif
+
+		#if PRINT_PERF
+			printf("Sample %d: Time per sample (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
+			#if COMPUTE_LOGLIKE
+				printf("Current lnL: %.3f\n", lnL);
+				printf("Current Model sum: %.3f\n", model_sum);
+				printf("Current Data sum: %.3f\n", data_sum);
+				printf("\n");
+			#endif
 		#endif
 	} // End of sampling looop
 
