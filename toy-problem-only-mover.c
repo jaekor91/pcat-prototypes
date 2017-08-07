@@ -606,8 +606,8 @@ int main(int argc, char *argv[])
 						#endif
 				
 						// // ----- Compute the original likelihood based on the current model. ----- //
-						float b_loglike = 0;// Original block likelihood
-						float p_loglike = 0; // Proposed move's loglikehood
+						double b_loglike = 0;// Original block likelihood
+						double p_loglike = 0; // Proposed move's loglikehood
 
 						// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
 						int l_min = 0;
