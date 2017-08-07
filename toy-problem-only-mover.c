@@ -1,6 +1,9 @@
-// This file is used to demonstrate how the block hashing---that is, how given
-// x, y, blocksize of an object, the program determines to which block the object
-// belongs.
+// Toy PCAT problem where the number of objects (and types of objects are fixed).
+// Note: If MARGIN1 size is too small, then seg fault error will occur during run time
+// as there is not enough space in local block copy of MODEL.
+
+// Note: If MAXCOUNT_BLOCK and MAXCOUNT is too small the algorithm to determine which object
+// belongs to which block will fail as the buffer overflows.
 
 // Note: Be careful about the random number generation. This may require more serious thinking. 
 // Currently, I am simply using different seed for each thread.
@@ -23,12 +26,13 @@
 #define NPIX 25 // PSF single dimension
 #define NPIX_div2 12
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
-#define MARGIN1 4 // Margin width of the block
+#define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 10 // Core proposal region 
+#define REGION 6// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_PER_DIM 8
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
+
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
 							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
