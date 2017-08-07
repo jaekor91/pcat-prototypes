@@ -8,6 +8,8 @@
 // Note: Be careful about the random number generation. This may require more serious thinking. 
 // Currently, I am simply using different seed for each thread.
 
+// Note: If any of the MODEL values in the center region becomes 0, then loglike becomes nan.
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -446,21 +448,25 @@ int main(int argc, char *argv[])
 						for (k=0; k<p_nobjs; k++){
 							float px = proposed_x[k];
 							float py = proposed_y[k];
-							if (px < 0){
-								proposed_x[k] *= -1;
+							if (px < BLOCK/2){
+								float tmp = (BLOCK/2)-px;
+								proposed_x[k] += 2 * tmp;
 							}
 							else{
-								if (px > PADDED_DATA_WIDTH-1){
-									proposed_x[k] = 2 * (PADDED_DATA_WIDTH-1) - px;
+								if (px > (BLOCK/2 + DATA_WIDTH - 1)){
+									float tmp = px - (BLOCK/2 + DATA_WIDTH - 1);									
+									proposed_x[k] -= 2 * tmp;
 								}
 							}
 
-							if (py < 0){
-								proposed_y[k] *= -1;
+							if (py < BLOCK/2){
+								float tmp = (BLOCK/2)-py;
+								proposed_y[k] += 2 * tmp;
 							}
 							else{
-								if (py > PADDED_DATA_WIDTH-1){
-									proposed_y[k] = 2 * (PADDED_DATA_WIDTH-1) - px;
+								if (py > (BLOCK/2 + DATA_WIDTH - 1)){
+									float tmp = py - (BLOCK/2 + DATA_WIDTH - 1);									
+									proposed_y[k] -= 2 * tmp;
 								}
 							}									
 						}// End of x,y bouncing
