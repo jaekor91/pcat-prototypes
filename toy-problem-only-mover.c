@@ -33,7 +33,7 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 100 // Number of times to loop before sampling
+	#define NLOOP 10000 // Number of times to loop before sampling
 	#define NSAMPLE 10// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1 // If 1, print peformance after every sample.
@@ -606,17 +606,8 @@ int main(int argc, char *argv[])
 						#endif
 				
 						// // ----- Compute the original likelihood based on the current model. ----- //
-						__attribute__((aligned(64))) float loglike_temp[BLOCK];					
 						float b_loglike = 0;// Original block likelihood
 						float p_loglike = 0; // Proposed move's loglikehood
-
-						#pragma omp simd // Check whether SIMD makes this faster
-						for (k=0; k<AVX_CACHE; k++){
-							loglike_temp[k] = 0;
-						}
-						#if SERIAL_DEBUG
-							printf("Initialize loglike_tmp array.\n");
-						#endif
 
 						// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
 						int l_min = 0;
@@ -636,7 +627,7 @@ int main(int argc, char *argv[])
 						// 		printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
 						// 	}
 						// #endif	
-						#pragma omp simd collapse(2)
+						#pragma omp simd collapse(2) reduction(+:b_loglike)
 						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 							for (m = m_min; m < m_max; m++){
 								int idx = l*BLOCK+m;
@@ -644,12 +635,10 @@ int main(int argc, char *argv[])
 								float tmp = model_proposed[idx];
 								float f = log(tmp);
 								float g = f * data[idx];
-								loglike_temp[m] += g - tmp;
+								b_loglike += g - tmp;
 							}
 						}					
-						for (k=0; k<BLOCK; k++){
-							b_loglike += loglike_temp[k];
-						}
+
 						#if SERIAL_DEBUG
 							printf("Finished computing current loglike.\n");
 						#endif			
@@ -713,15 +702,7 @@ int main(int argc, char *argv[])
 						#endif
 
 						// // ----- Compute the new likelihood ----- //
-						#pragma omp simd // Check whether SIMD makes this faster
-						for (k=0; k<BLOCK; k++){
-							loglike_temp[k] = 0;
-						}
-						#if SERIAL_DEBUG
-							printf("Re-initialize the loglike.\n");
-						#endif						
-
-						#pragma omp simd collapse(2)
+						#pragma omp simd collapse(2) reduction(+:p_loglike)
 						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 							for (m = m_min; m < m_max; m++){
 								int idx = l*BLOCK+m;
@@ -729,12 +710,9 @@ int main(int argc, char *argv[])
 								float tmp = model_proposed[idx];
 								float f = log(tmp);
 								float g = f * data[idx];
-								loglike_temp[m] += g - tmp;
+								p_loglike += g - tmp;
 							}
 						}					
-						for (k=0; k<BLOCK; k++){
-							p_loglike += loglike_temp[k];
-						}						
 						#if SERIAL_DEBUG
 							printf("Computed the new loglike.\n");
 						#endif
@@ -852,6 +830,6 @@ int main(int argc, char *argv[])
 		#endif
 	} // End of sampling looop
 
-	printf("Sampling ended. Exit program.");
+	printf("Sampling ended. Exit program.\n");
 }
 
