@@ -20,6 +20,8 @@
 #include <assert.h>
 #include <sys/mman.h>
 
+
+#define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
 #define NUM_THREADS 4 // Number of threads used for execution.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
@@ -69,8 +71,6 @@
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.05 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-
-
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -142,17 +142,6 @@ void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
 
 int main(int argc, char *argv[])
 {	
-	// Files for saving (NSAMPLE, MAX_STARS) of x, y, f each or (NSAMPLE) of loglike. 
-    FILE *fpx = NULL;
-    FILE *fpy = NULL;
-    FILE *fpf = NULL;
-    FILE *fplnL = NULL;
-
-    fpx = fopen("chain_x.bin", "w");
-    fpy = fopen("chain_y.bin", "w");
-    fpf = fopen("chain_f.bin", "w");
-    fplnL = fopen("chain_lnL.bin", "w");
-
 	// Print basic parameters of the problem.
 	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
 	printf("Number of sample to collect: %d\n", NSAMPLE);
@@ -173,10 +162,15 @@ int main(int argc, char *argv[])
 	printf("Number of thread used: %d\n", NUM_THREADS);
 
 
+	// Set the number of threads to be used through out the program
+	omp_set_dynamic(0);     // Explicitly disable dynamic teams
+	omp_set_num_threads(NUM_THREADS); 
+
 	srand(123); // Initializing random seed for the whole program.
 	int i, j, s; // Initialization and loop variables. s for sample.
 	int time_seed; // Every time parallel region is entered, reset this seed as below.
-	time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);			
+	time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);
+
 
 	// ----- Declare global, shared variables ----- //
 	// Object array. Each object gets AVX_CACHE space or 16 floats.
@@ -185,10 +179,6 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) int OBJS_HASH[MAXCOUNT * NUM_THREADS * NUM_BLOCKS_TOTAL]; 
 	// Block counter for each thread
 	__attribute__((aligned(64))) int BLOCK_COUNT_THREAD[NUM_THREADS * NUM_BLOCKS_TOTAL]; 
-
-	// Set the number of threads to be used through out the program
-	omp_set_dynamic(0);     // Explicitly disable dynamic teams
-	omp_set_num_threads(NUM_THREADS); 
 
 	// ----- Initialize object array ----- //
 	#pragma omp parallel for simd shared(OBJS)
@@ -204,8 +194,8 @@ int main(int argc, char *argv[])
 			OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 			OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
 			float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
-			OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
-            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
+			// OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+            OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
 		}
 	}
 	// Initialize hashing variable	
@@ -220,11 +210,85 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) float DATA[IMAGE_SIZE]; // Generate positive test data. 64 bytes aligned.
 	__attribute__((aligned(64))) float MODEL[IMAGE_SIZE]; // Allocate model image. 64 bytes aligned.
 	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix
-	init_mat_float(DATA, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with random values
-	init_mat_float(MODEL, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with zero values
+
+	// Initialize to flat values.
+	init_mat_float(DATA, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value
+	init_mat_float(MODEL, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value
 	init_mat_float(A, size_of_A, 1e-06, 0); // Fill data with random values
 
+	// // Read in the psf design matrix A
+	// FILE *fpA = NULL;
+	// fpA = fopen("A_gauss.bin", "rb");
+	// fread(&A, sizeof(float), size_of_A, fpA);
 
+	// Initialize DATA matrix by either reading in an old data or generating a new mock.
+	#if GENERATE_NEW_MOCK 
+		__attribute__((aligned(64))) float OBJS_TRUE[AVX_CACHE * MAX_STARS];
+		__attribute__((aligned(64))) float x_true[MAX_STARS];
+		__attribute__((aligned(64))) float y_true[MAX_STARS];
+		__attribute__((aligned(64))) float f_true[MAX_STARS];
+
+	    #pragma omp parallel shared(OBJS_TRUE)
+	    {
+			unsigned int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
+			#pragma omp for
+			for (i=0; i<MAX_STARS; i++){
+				int idx = i*AVX_CACHE;
+				OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
+				OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
+				float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
+				OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+	            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
+			}
+		}
+		// Saving true x, y, f of underlying objects into files. 
+		// Note that htis part cannot be parallelized.
+		// Also, coalescing x, y, f into 1D array each.
+		FILE *fpx_true = NULL;
+		FILE *fpy_true = NULL;
+		FILE *fpf_true = NULL;
+		fpx_true = fopen("true_chain_x.bin", "wb");
+		fpy_true = fopen("true_chain_y.bin", "wb");
+		fpf_true = fopen("true_chain_f.bin", "wb");	
+		for (i=0; i<MAX_STARS; i++){
+			int idx = i * AVX_CACHE;
+			float x = OBJS_TRUE[idx + BIT_X];
+			float y = OBJS_TRUE[idx + BIT_Y];
+			float f = OBJS_TRUE[idx + BIT_FLUX];
+			fwrite(&x, sizeof(float), 1, fpx_true);
+			fwrite(&y, sizeof(float), 1, fpy_true);
+			fwrite(&f, sizeof(float), 1, fpf_true);
+			x_true[i] = x;
+			y_true[i] = y;
+			f_true[i] = f;
+		}
+		fclose(fpx_true);
+		fclose(fpy_true);
+		fclose(fpf_true);
+		// Poisson realization of the underlying model
+
+		// 
+	#else
+		FILE *fp_DATA = NULL;
+		fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
+		fread(&DATA, sizeof(float), IMAGE_SIZE, fp_DATA);
+	#endif
+
+	// Initialize MODEL matrix according to the random draws above.
+
+
+
+
+	// Files for saving (NSAMPLE, MAX_STARS) of x, y, f each or (NSAMPLE) of loglike. 
+    FILE *fpx = NULL;
+    FILE *fpy = NULL;
+    FILE *fpf = NULL;
+    FILE *fplnL = NULL;
+
+    fpx = fopen("chain_x.bin", "wb");
+    fpy = fopen("chain_y.bin", "wb");
+    fpf = fopen("chain_f.bin", "wb");
+    fplnL = fopen("chain_lnL.bin", "wb");
 
 	double start, end, dt, dt_per_iter; // For timing purpose.
 	double dt_total, start_total, end_total; // Measure time taken for the whole run.	
