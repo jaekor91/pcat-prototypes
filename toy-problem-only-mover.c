@@ -77,6 +77,7 @@
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
 #define TRUE_BACK 179.0
+#define FLUX_UPPER_LIMIT 500.0 // If the proposed flux values become greater than this, then set it to this value.
 
 // Some MACRO functions
  #define max(a,b) \
@@ -205,8 +206,8 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) float MODEL[IMAGE_SIZE]; // Allocate model image. 64 bytes aligned.
 	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix
 	init_mat_float(DATA, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with random values
-	init_mat_float(MODEL, IMAGE_SIZE, 0.0, 0); // Fill data with zero values
-	init_mat_float(A, size_of_A, 0.001, 0); // Fill data with random values
+	init_mat_float(MODEL, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with zero values
+	init_mat_float(A, size_of_A, 1e-06, 0); // Fill data with random values
 
 
 
@@ -427,6 +428,9 @@ int main(int argc, char *argv[])
 							float pf1 = f0+df;
 							float pf2 = -pf1 + 2*TRUE_MIN_FLUX; // If the proposed flux is below minimum, bounce off. Why this particular form?
 							proposed_flux[k] = max(pf1, pf2);
+
+							// proposed_flux[k] = min(proposed_flux[k], FLUX_UPPER_LIMIT); // If the proposed flux becomes too large, then set to the max val.
+
 							// Position
 							float dpos_rms = 12.0 / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
 							float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
@@ -814,8 +818,10 @@ int main(int argc, char *argv[])
 			printf("Sample %d: Time per sample (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
 
 			// ---- Calculate the likelihood based on the curret model ---- //
-			double lnL; // Loglike 
-			#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL)
+			double lnL = 0; // Loglike 
+			double model_sum = 0; // Sum of all model values w/o padding
+			double data_sum = 0; // Sum of all data values w/o padding
+			#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL, model_sum, data_sum)
 			for (i=BLOCK/2; i<((BLOCK/2)+DATA_WIDTH); i++){
 				for (j=BLOCK/2; j<((BLOCK/2)+DATA_WIDTH); j++){
 					int idx = i*PADDED_DATA_WIDTH+j;
@@ -823,10 +829,15 @@ int main(int argc, char *argv[])
 					float tmp = MODEL[idx];
 					float f = log(tmp);
 					float g = f * DATA[idx];
-					lnL += g - tmp;					
+					lnL += g - tmp;
+					model_sum += tmp;
+					data_sum += DATA[idx];
 				}// end of column loop
 			} // End of row loop
 			printf("Current lnL: %.3f\n", lnL);
+			printf("Current Model sum: %.3f\n", model_sum);
+			printf("Current Data sum: %.3f\n", data_sum);
+			printf("\n");
 		#endif
 	} // End of sampling looop
 
