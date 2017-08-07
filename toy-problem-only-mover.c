@@ -18,6 +18,26 @@
 #include <assert.h>
 #include <sys/mman.h>
 
+// Number of threads, ieration, and debug
+#define NUM_THREADS 4 // Number of threads used for execution.
+#define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
+#define DEBUG 0// Set to 1 when debugging.
+#define BLOCK_ID_DEBUG 2
+#if DEBUG
+	// General strategy 
+	// Debug first in serial mode, commenting out OMP directives as appropriate.
+	// One thread, one block, one iteration.
+	// One thread, one block, multiplie iterations.
+	// One thread, multiple blocks, multiplie iterations.
+	// Multiple threads, multiple blocks, multiple iterations.
+	#define NITER 1000
+	#define NITER_BURNIN 0
+#else
+	#define NITER_BURNIN 5000// Number of burn-in to perform
+	#define NITER (5000+NITER_BURNIN) // Number of iterations
+#endif 
+
+
 // Define global dimensions
 #define AVX_CACHE2 16
 #define AVX_CACHE AVX_CACHE2
@@ -30,7 +50,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 8
+#define NUM_BLOCKS_PER_DIM 4
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -46,21 +66,7 @@
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
-#define NUM_THREADS 4 // Number of threads used for execution.
-#define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
-#define DEBUG 0// Set to 1 only when debugging
-#define BLOCK_ID_DEBUG 2
-#if DEBUG
-	// General strategy
-	// One thread, one block, one iteration
-	// One thread, one block, multiplie iterations
-	// One thread, multiple blocks, multiplie iterations
-	#define NITER 1000
-	#define NITER_BURNIN 0
-#else
-	#define NITER_BURNIN 5000// Number of burn-in to perform
-	#define NITER (5000+NITER_BURNIN) // Number of iterations
-#endif 
+
 
 
 // Bit number of objects within 
