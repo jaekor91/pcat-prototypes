@@ -40,9 +40,9 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 0 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
-#define NUM_THREADS 4 // Number of threads used for execution.
+#define NUM_THREADS 1 // Number of threads used for execution.
 #define DEBUG 0// Set to 1 only when debugging
 #define BLOCK_ID_DEBUG 2
 #if DEBUG
@@ -157,6 +157,10 @@ int main(int argc, char *argv[])
 	// Block counter for each thread
 	__attribute__((aligned(64))) int BLOCK_COUNT_THREAD[NUM_THREADS * NUM_BLOCKS_TOTAL]; 
 
+	// Set the number of threads to be used through out the program
+	omp_set_dynamic(0);     // Explicitly disable dynamic teams
+	omp_set_num_threads(NUM_THREADS); 
+
 	// ----- Initialize object array ----- //
 	#pragma omp parallel for simd shared(OBJS)
 	for (i=0; i< AVX_CACHE * MAX_STARS; i++){
@@ -196,9 +200,9 @@ int main(int argc, char *argv[])
 	// Start of the loop
 	printf("\nLoop starts here.\n");
 	for (j=0; j<NITER; j++){
-		#if DEBUG 
+		// #if DEBUG 
 			printf("\n------ Start of iteration %d -------\n", j);
-		#endif
+		// #endif
 		start = omp_get_wtime(); // Timing starts here 		
 
 		// ------- Generating offsets ------ //
@@ -280,10 +284,10 @@ int main(int argc, char *argv[])
 		// IMPORTANT: X is the row direction and Y is the column direction.
 		time_seed = (int) (time(NULL)) * rand();	
 		int ibx, iby; // Block idx	
-		#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
+		// #pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
 			private(ibx, iby)
-		for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction				
-			for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction
+		for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction				
+			for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction
 				int k, l, m; // private loop variables
 				int block_ID = (ibx * NUM_BLOCKS_PER_DIM) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 				int t_id = omp_get_thread_num();
@@ -310,8 +314,8 @@ int main(int argc, char *argv[])
 				if (p_nobjs > 0) // Proceed with the rest only if there are objects in the region.
 				{
 					// ----- Transfer objects (x, y, f) to cache ------ //
-					#pragma omp simd //collapse(2)
 					for (k=0; k<p_nobjs; k++){
+						#pragma omp simd //collapse(2)						
 						for (l=0; l<AVX_CACHE; l++){
 							p_objs[AVX_CACHE*k+l] = OBJS[p_objs_idx[k]*AVX_CACHE+l];
 						}
@@ -672,8 +676,7 @@ int main(int argc, char *argv[])
 								printf("\n\n**** Accepted changes ****\n");
 								printf("Number of stars to be updated: %d\n", p_nobjs);
 							}
-						#endif 
-
+						#endif
 						for (k=0; k < p_nobjs; k++){
 							// printf("Begun accessing obj_num\n");	Debug
 							int obj_num = p_objs_idx[k];
@@ -682,8 +685,8 @@ int main(int argc, char *argv[])
 							float px = proposed_x[k];
 							float py = proposed_y[k];
 							float pf = proposed_flux[k];
-							// #if DEBUG
-								// if (block_ID == BLOCK_ID_DEBUG){
+							#if DEBUG
+								if (block_ID == BLOCK_ID_DEBUG){
 									float x = px - (BLOCK/2) - offset_X;
 									float y = py - (BLOCK/2) - offset_Y;			
 									float x_in_block = x - ibx * BLOCK;
@@ -695,31 +698,33 @@ int main(int argc, char *argv[])
 									printf("x,y before adjustment: %.3f, %.3f\n", px, py);
 									printf("x,y after adjustment: %.3f, %.3f\n", x, y);
 									printf("x,y in block: %.3f, %.3f\n", x_in_block, y_in_block);							
+									printf("Proposed flux: %.3f\n", pf);
 									printf("Original x,y: %.3f, %.3f\n", OBJS[idx + BIT_X], OBJS[idx + BIT_Y]);
 									printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);				
 									printf("\n");								
-								// }	
-							// #endif				
-							// OBJS[idx + BIT_X] = px;
-							// OBJS[idx + BIT_Y] = py;
-							// OBJS[idx + BIT_FLUX] = pf;
+								}	
+							#endif				
+							OBJS[idx + BIT_X] = px;
+							OBJS[idx + BIT_Y] = py;
+							OBJS[idx + BIT_FLUX] = pf;
 							// printf("Finished depositing.\n");
-						}						
+						} // Finished updating						
 					}// end of proposal accept/reject}
-				}// End of a step
-			// printf("End of Block %d computation.\n\n", block_ID);
+
+				}// End of a step, if there are objects to perturb
+			printf("End of Block %d computation.\n\n", block_ID);
 			} // End of y block loop
 		} // End of x block loop // End of paralell region
 
 		// Print the x, y, f of a particular particle
 
-		int idx_ref = (MAX_STARS-1) * AVX_CACHE;
-		printf("%d: (x, y, f) = (%.3f,  %.3f,  %.3f)\n", j, OBJS[idx_ref + BIT_X], OBJS[idx_ref + BIT_Y], OBJS[idx_ref + BIT_FLUX]);
-		printf("\n");
+		// int idx_ref = (MAX_STARS-1) * AVX_CACHE;
+		// printf("%d: (x, y, f) = (%.3f,  %.3f,  %.3f)\n", j, OBJS[idx_ref + BIT_X], OBJS[idx_ref + BIT_Y], OBJS[idx_ref + BIT_FLUX]);
+		// printf("\n");
 
-		#if DEBUG
-			printf("-------- End of iteration %d --------\n\n", j);
-		#endif
+		// #if DEBUG
+			// printf("-------- End of iteration %d --------\n\n", j);
+		// #endif
 
 		end = omp_get_wtime();
 		// Update time only if burn in has passed.
