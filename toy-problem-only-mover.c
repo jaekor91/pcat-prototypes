@@ -35,13 +35,13 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 1000 // Number of times to loop before sampling
-	#define NSAMPLE 1000// Numboer samples to collect
+	#define NLOOP 10000 // Number of times to loop before sampling
+	#define NSAMPLE 500// Numboer samples to collect
 #endif 
-#define PRINT_PERF 1 // If 1, print peformance after every sample.
+#define PRINT_PERF 0 // If 1, print peformance after every sample.
 #define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
-#define SAVE_CHAIN 0 // If 1, save the chain for x, y, f, loglike.
+#define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
 
 // Define global dimensions
 #define AVX_CACHE2 16
@@ -142,6 +142,17 @@ void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
 
 int main(int argc, char *argv[])
 {	
+	// Files for saving (NSAMPLE, MAX_STARS) of x, y, f each or (NSAMPLE) of loglike. 
+    FILE *fpx = NULL;
+    FILE *fpy = NULL;
+    FILE *fpf = NULL;
+    FILE *fplnL = NULL;
+
+    fpx = fopen("chain_x.bin", "w");
+    fpy = fopen("chain_y.bin", "w");
+    fpf = fopen("chain_f.bin", "w");
+    fplnL = fopen("chain_lnL.bin", "w");
+
 
 	// Print basic parameters of the problem.
 	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
@@ -849,8 +860,29 @@ int main(int argc, char *argv[])
 				printf("\n");
 			#endif
 		#endif
-	} // End of sampling looop
 
+		#if SAVE_CHAIN
+			for (i=0; i<MAX_STARS; i++){
+				int idx = i * AVX_CACHE;
+				float x = OBJS[idx + BIT_X];
+				float y = OBJS[idx + BIT_Y];
+				float f = OBJS[idx + BIT_FLUX];
+				fwrite(&x, sizeof(float), 1, fpx);
+				fwrite(&y, sizeof(float), 1, fpy);
+				fwrite(&f, sizeof(float), 1, fpf);				
+			}
+			#if COMPUTE_LOGLIKE
+				fwrite(&lnL, sizeof(double), 1, fplnL);
+			#endif
+		#endif
+	} // End of sampling looop
 	printf("Sampling ended. Exit program.\n");
+
+
+	// Close files.
+	fclose(fpx);
+	fclose(fpy);
+	fclose(fpf);
+	fclose(fplnL);
 }
 
