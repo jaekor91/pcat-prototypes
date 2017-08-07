@@ -140,6 +140,18 @@ void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
 	return;
 }
 
+
+void print_float_vec(float* mat, int size){
+	// Print out float vector
+	int i;
+	for (i=0; i<size-1; i++){
+		printf("%.2f, ", mat[i]);
+	}
+	printf("%2f\n", mat[size-1]);
+}
+
+
+
 int main(int argc, char *argv[])
 {	
 	// Print basic parameters of the problem.
@@ -209,17 +221,20 @@ int main(int argc, char *argv[])
 	int size_of_A = NPIX2 * INNER;
 	__attribute__((aligned(64))) float DATA[IMAGE_SIZE]; // Generate positive test data. 64 bytes aligned.
 	__attribute__((aligned(64))) float MODEL[IMAGE_SIZE]; // Allocate model image. 64 bytes aligned.
-	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix
+	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix [INNER, NPIX2]
 
 	// Initialize to flat values.
 	init_mat_float(DATA, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value
 	init_mat_float(MODEL, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value
 	init_mat_float(A, size_of_A, 1e-06, 0); // Fill data with random values
 
-	// // Read in the psf design matrix A
-	// FILE *fpA = NULL;
-	// fpA = fopen("A_gauss.bin", "rb");
-	// fread(&A, sizeof(float), size_of_A, fpA);
+	// Read in the psf design matrix A
+	FILE *fpA = NULL;
+	fpA = fopen("A_gauss.bin", "rb");
+	fread(&A, sizeof(float), size_of_A, fpA);
+	// print_float_vec(A, size_of_A);
+	printf("A[312]: %.3f\n", A[312]); // Should be 0.2971158
+	fclose(fpA);
 
 	// Initialize DATA matrix by either reading in an old data or generating a new mock.
 	#if GENERATE_NEW_MOCK 
