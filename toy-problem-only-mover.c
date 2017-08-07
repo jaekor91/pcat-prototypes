@@ -694,8 +694,8 @@ int main(int argc, char *argv[])
 						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
 						// Calculate PSF and then add to model proposed
 						for (k=0; k<jstar; k++){
-							int idx_row = ix[k]; // Note that ix and iy are already within block position.
-							int idx_col = iy[k];
+							int idx_x = ix[k]; // Note that ix and iy are already within block position.
+							int idx_y = iy[k];
 							#if SERIAL_DEBUG
 								printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
 							#endif
@@ -703,7 +703,7 @@ int main(int argc, char *argv[])
 							for (l=0; l<NPIX2; l++){
 								for (m=0; m<INNER; m++){
 									// AVX_CACHE_VERSION
-									model_proposed[(idx_row+(l/NPIX)-NPIX_div2)*BLOCK + (idx_col+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+									model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
 								} 
 							}// End of PSF calculation for K-th star
 						}
@@ -739,9 +739,7 @@ int main(int argc, char *argv[])
 							// If the proposed model is rejected. Do nothing.
 						}
 						else{
-							// Accept the proposal					
-							idx_row = ibx * BLOCK + offset_X + BLOCK/2; // BLOCK/2 is for the padding.
-							idx_col = iby * BLOCK + offset_Y + BLOCK/2; 
+							// Accept the proposal
 						 	// Note that since padded region is never considered for loglike calculation,
 							// there is no need worry about them as we update the image.
 							#pragma omp simd collapse(2)
