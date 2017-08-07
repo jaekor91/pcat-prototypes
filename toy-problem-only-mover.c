@@ -23,11 +23,11 @@
 #define NPIX 25 // PSF single dimension
 #define NPIX_div2 12
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
-#define MARGIN1 1 // Margin width of the block
+#define MARGIN1 4 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 6 // Core proposal region 
+#define REGION 10 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 4
+#define NUM_BLOCKS_PER_DIM 8
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
@@ -42,7 +42,8 @@
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
-#define NUM_THREADS 1 // Number of threads used for execution.
+#define NUM_THREADS 4 // Number of threads used for execution.
+#define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 only when debugging
 #define BLOCK_ID_DEBUG 2
 #if DEBUG
@@ -53,11 +54,10 @@
 	#define NITER 1000
 	#define NITER_BURNIN 0
 #else
-	#define NITER_BURNIN 1000// Number of burn-in to perform
-	#define NITER (1000+NITER_BURNIN) // Number of iterations
+	#define NITER_BURNIN 5000// Number of burn-in to perform
+	#define NITER (5000+NITER_BURNIN) // Number of iterations
 #endif 
 
-#define SERIAL_DEBUG 1 // Only to be used when NUM_THREADS 0
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -200,9 +200,9 @@ int main(int argc, char *argv[])
 	// Start of the loop
 	printf("\nLoop starts here.\n");
 	for (j=0; j<NITER; j++){
-		// #if DEBUG 
+		#if SERIAL_DEBUG 
 			printf("\n------ Start of iteration %d -------\n", j);
-		// #endif
+		#endif
 		start = omp_get_wtime(); // Timing starts here 		
 
 		// ------- Generating offsets ------ //
@@ -217,15 +217,18 @@ int main(int argc, char *argv[])
 		#if DEBUG
 			printf("Offset X, Y: %d, %d\n\n", offset_X, offset_Y);
 		#endif
-		printf("Generated offsets.\n");
+		#if SERIAL_DEBUG
+			printf("Generated offsets.\n");
+		#endif
 
 		// ------ Set the counter to zero ------ //
 		#pragma omp parallel for simd shared(BLOCK_COUNT_THREAD)
 		for (i=0; i < NUM_THREADS * NUM_BLOCKS_TOTAL; i++){
 			BLOCK_COUNT_THREAD[i] = 0;
 		}
-		printf("Set the counters to zero.\n");
-
+		#if SERIAL_DEBUG
+			printf("Set the counters to zero.\n");
+		#endif
 		// ------ Hash objects into blocks ----- //
 		// For each block, allocate an array of length MAXCOUNT * numthreads (OBJS_HASH)
 		// Within each MAXCOUNT chunk, save the indices found by a particular thread.
@@ -279,9 +282,11 @@ int main(int argc, char *argv[])
 				}//	
 			}
 		}// End of parallel region
-		printf("Hashed objects into the current proposal regions.\n");
+		#if SERIAL_DEBUG
+			printf("Hashed objects into the current proposal regions.\n");
 
 		printf("Start computing step.\n");
+		#endif 
 		// ----- Model evaluation, followed by acceptance or rejection. ----- //
 		// Iterating through all the blocks.
 		// IMPORTANT: X is the row direction and Y is the column direction.
@@ -674,8 +679,11 @@ int main(int argc, char *argv[])
 					// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
 					// Calculate PSF and then add to model proposed
 					for (k=0; k<jstar; k++){
-						idx_row = ix[k]; // Note that ix and iy are already within block position.
-						idx_col = iy[k];
+						int idx_row = ix[k]; // Note that ix and iy are already within block position.
+						int idx_col = iy[k];
+						#if SERIAL_DEBUG
+							printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
+						#endif
 						#pragma omp simd
 						for (l=0; l<NPIX2; l++){
 							for (m=0; m<INNER; m++){
@@ -782,7 +790,9 @@ int main(int argc, char *argv[])
 						printf("There were no objects so skip.\n");
 					#endif
 				}
-			printf("End of Block %d computation.\n\n", block_ID);
+			#if SERIAL_DEBUG
+				printf("End of Block %d computation.\n\n", block_ID);
+			#endif
 			} // End of y block loop
 		} // End of x block loop // End of paralell region
 
@@ -792,9 +802,9 @@ int main(int argc, char *argv[])
 		// printf("%d: (x, y, f) = (%.3f,  %.3f,  %.3f)\n", j, OBJS[idx_ref + BIT_X], OBJS[idx_ref + BIT_Y], OBJS[idx_ref + BIT_FLUX]);
 		// printf("\n");
 
-		// #if DEBUG
+		#if SERIAL_DEBUG
 			printf("-------- End of iteration %d --------\n\n", j);
-		// #endif
+		#endif
 
 		end = omp_get_wtime();
 		// Update time only if burn in has passed.
