@@ -44,7 +44,6 @@
 #define NPIX_div2 12
 #define INNER 10
 #define NPIX 25 // PSF single dimension
-#define NPIX_div2 12
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
