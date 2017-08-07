@@ -40,7 +40,7 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS 0 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
 #define NUM_THREADS 1 // Number of threads used for execution.
 #define DEBUG 0// Set to 1 only when debugging
@@ -57,7 +57,7 @@
 	#define NITER (1000+NITER_BURNIN) // Number of iterations
 #endif 
 
-
+#define SERIAL_DEBUG 1 // Only to be used when NUM_THREADS 0
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -217,13 +217,14 @@ int main(int argc, char *argv[])
 		#if DEBUG
 			printf("Offset X, Y: %d, %d\n\n", offset_X, offset_Y);
 		#endif
-	
+		printf("Generated offsets.\n");
 
 		// ------ Set the counter to zero ------ //
 		#pragma omp parallel for simd shared(BLOCK_COUNT_THREAD)
 		for (i=0; i < NUM_THREADS * NUM_BLOCKS_TOTAL; i++){
 			BLOCK_COUNT_THREAD[i] = 0;
 		}
+		printf("Set the counters to zero.\n");
 
 		// ------ Hash objects into blocks ----- //
 		// For each block, allocate an array of length MAXCOUNT * numthreads (OBJS_HASH)
@@ -278,19 +279,25 @@ int main(int argc, char *argv[])
 				}//	
 			}
 		}// End of parallel region
+		printf("Hashed objects into the current proposal regions.\n");
 
+		printf("Start computing step.\n");
 		// ----- Model evaluation, followed by acceptance or rejection. ----- //
 		// Iterating through all the blocks.
 		// IMPORTANT: X is the row direction and Y is the column direction.
 		time_seed = (int) (time(NULL)) * rand();	
 		int ibx, iby; // Block idx	
-		// #pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
+		#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
 			private(ibx, iby)
 		for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction				
 			for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction
 				int k, l, m; // private loop variables
 				int block_ID = (ibx * NUM_BLOCKS_PER_DIM) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 				int t_id = omp_get_thread_num();
+
+				#if SERIAL_DEBUG
+					printf("\nStart of Block %d computation.\n", block_ID);
+				#endif
 
 				// ----- Pick objs that lie in the proposal region ----- //
 				int p_nobjs=0; // Number of objects within the proposal region of the block
@@ -311,6 +318,10 @@ int main(int argc, char *argv[])
 					}
 				}
 
+				#if SERIAL_DEBUG
+					printf("Number of objects in this block: %d\n", p_nobjs);
+				#endif
+
 				if (p_nobjs > 0) // Proceed with the rest only if there are objects in the region.
 				{
 					// ----- Transfer objects (x, y, f) to cache ------ //
@@ -320,6 +331,9 @@ int main(int argc, char *argv[])
 							p_objs[AVX_CACHE*k+l] = OBJS[p_objs_idx[k]*AVX_CACHE+l];
 						}
 					}
+					#if SERIAL_DEBUG
+						printf("Finished reading the current values.\n");
+					#endif
 
 					// Debug: Looking at objects selected for change. Must mach objects
 					#if DEBUG
@@ -353,6 +367,9 @@ int main(int argc, char *argv[])
 						current_y[k] = p_objs[k*AVX_CACHE+BIT_Y];
 						current_flux[k] = p_objs[k*AVX_CACHE+BIT_FLUX];
 					}
+					#if SERIAL_DEBUG
+						printf("Finished gathering x, y, f values in linear arrays.\n");
+					#endif
 
 					// ------ Draw unit normal random numbers to be used. ------- //
 					// 3 * p_nobjs random normal number for f, x, y.
@@ -371,6 +388,10 @@ int main(int argc, char *argv[])
 						randn[k+2*MAXCOUNT_BLOCK] = R * sinv;
 						// printf("%.3f, ", randn[k]); // For debugging. 
 					}
+
+					#if SERIAL_DEBUG
+						printf("Finished generating normal random number numbers.\n");
+					#endif
 
 					// ----- Generate proposed values ------ //
 					// Note: Proposed fluxes must be above the minimum flux.
@@ -392,6 +413,10 @@ int main(int argc, char *argv[])
 						proposed_x[k] = current_x[k] + dx;
 						proposed_y[k] = current_y[k] + dy;
 					}
+					#if SERIAL_DEBUG
+						printf("Finished computing proposed x, y, f values.\n");
+					#endif
+
 					// If the position is outside the image, bounce it back inside
 					for (k=0; k<p_nobjs; k++){
 						float px = proposed_x[k];
@@ -414,12 +439,18 @@ int main(int argc, char *argv[])
 							}
 						}									
 					}// End of x,y bouncing
+					#if SERIAL_DEBUG
+						printf("Finished fixing x, y at boundaries.\n");
+					#endif
 
 					// ------ compute flux distribution prior factor ------ //
 					float factor = 0; // Prior factor 
 					for (k=0; k< p_nobjs; k++){
 						factor -= TRUE_MIN_FLUX * log(proposed_flux[k]/current_flux[k]); // Accumulating factor											
 					}
+					#if SERIAL_DEBUG
+						printf("Finished evaluating flux distribution prior factor.\n");
+					#endif
 
 					// ----- Compute dX matrix for current and proposed, incorporating flux ----- //
 					__attribute__((aligned(64))) int current_ix[MAXCOUNT_BLOCK];
@@ -433,6 +464,9 @@ int main(int argc, char *argv[])
 						proposed_ix[k] = ceil(proposed_x[k]);
 						proposed_iy[k] = ceil(proposed_y[k]);
 					} // end of ix, iy computation
+					#if SERIAL_DEBUG
+						printf("Finished computing ceil of proposed and current x, y.\n");
+					#endif
 					
 					// For vectorization, compute dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] and transpose to dX [MAXCOUNT, AVX_CACHE2]
 					__attribute__((aligned(64))) float current_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK]; 
@@ -485,6 +519,9 @@ int main(int argc, char *argv[])
 						current_dX_T[MAXCOUNT_BLOCK * 9 + k] = dcy * dcy * dcy * cf;
 						proposed_dX_T[MAXCOUNT_BLOCK * 9+ k] = dcy * dcy * dcy * pf; 
 					} // end of dX computation 
+					#if SERIAL_DEBUG
+						printf("Computed dX.\n");
+					#endif
 					
 					// Transposing the matrices: dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] to dX [MAXCOUNT, AVX_CACHE2]
 					// Combine current and proposed arrays. 
@@ -495,6 +532,10 @@ int main(int argc, char *argv[])
 							dX[(p_nobjs+k)*AVX_CACHE2+l] = proposed_dX_T[MAXCOUNT_BLOCK*l+k];							
 						}
 					}// end of transpose
+					#if SERIAL_DEBUG
+						printf("Finished transposing dX.\n");
+					#endif
+
 					// Combine current and proposed arrays. 
 					// Note that the integer x, y positions are in block position.
 					__attribute__((aligned(64))) int ix[MAXCOUNT_BLOCK * 2];
@@ -510,6 +551,9 @@ int main(int argc, char *argv[])
 					}
 					// Since the arrays were coalesced
 					p_nobjs *= 2;
+					#if SERIAL_DEBUG
+						printf("Finished computing ix, iy.\n");
+					#endif
 
 					// #if DEBUG 
 					// 	if (block_ID == BLOCK_ID_DEBUG){
@@ -536,7 +580,9 @@ int main(int argc, char *argv[])
 							data[l*BLOCK + k] = DATA[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];
 						}
 					}
-
+					#if SERIAL_DEBUG
+						printf("Finished transferring MODEL and DATA for the block.\n");
+					#endif
 			
 					// // ----- Compute the original likelihood based on the current model. ----- //
 					__attribute__((aligned(64))) float loglike_temp[BLOCK];					
@@ -547,6 +593,9 @@ int main(int argc, char *argv[])
 					for (k=0; k<AVX_CACHE; k++){
 						loglike_temp[k] = 0;
 					}
+					#if SERIAL_DEBUG
+						printf("Initialize loglike_tmp array.\n");
+					#endif
 
 					// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
 					int l_min = 0;
@@ -579,7 +628,10 @@ int main(int argc, char *argv[])
 					}					
 					for (k=0; k<BLOCK; k++){
 						b_loglike += loglike_temp[k];
-					}						
+					}
+					#if SERIAL_DEBUG
+						printf("Finished computing current loglike.\n");
+					#endif			
 
 					// ----- Hashing ----- //
 					// This steps reduces number of PSFs that need to be evaluated.					
@@ -589,6 +641,9 @@ int main(int argc, char *argv[])
 					// 1 or 2, there should be no problem. 
 					#pragma omp simd // Explicit vectorization
 				    for (k=0; k<BLOCK*BLOCK; k++) { hash[k] = -1; }
+			    	#if SERIAL_DEBUG
+						printf("Initialized hashing variable.\n");
+					#endif
 
 				    int jstar = 0; // Number of stars after coalescing.
 					int istar;
@@ -611,6 +666,9 @@ int main(int argc, char *argv[])
 				            jstar++;
 				        }
 				    }
+				    #if SERIAL_DEBUG
+						printf("Finished hashing.\n");
+					#endif
 
 					// row and col location of the star based on X, Y values.
 					// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
@@ -626,13 +684,18 @@ int main(int argc, char *argv[])
 							} 
 						}// End of PSF calculation for K-th star
 					}
-
+					#if SERIAL_DEBUG
+						printf("Finished updating the local copy of the MODEL.\n");
+					#endif
 
 					// // ----- Compute the new likelihood ----- //
 					#pragma omp simd // Check whether SIMD makes this faster
 					for (k=0; k<BLOCK; k++){
 						loglike_temp[k] = 0;
-					}						
+					}
+					#if SERIAL_DEBUG
+						printf("Re-initialize the loglike.\n");
+					#endif						
 
 					#pragma omp simd
 					for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
@@ -648,7 +711,9 @@ int main(int argc, char *argv[])
 					for (k=0; k<BLOCK; k++){
 						p_loglike += loglike_temp[k];
 					}						
-
+					#if SERIAL_DEBUG
+						printf("Computed the new loglike.\n");
+					#endif
 					
 				
 					// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
@@ -712,6 +777,11 @@ int main(int argc, char *argv[])
 					}// end of proposal accept/reject}
 
 				}// End of a step, if there are objects to perturb
+				else{
+					#if SERIAL_DEBUG
+						printf("There were no objects so skip.\n");
+					#endif
+				}
 			printf("End of Block %d computation.\n\n", block_ID);
 			} // End of y block loop
 		} // End of x block loop // End of paralell region
@@ -723,7 +793,7 @@ int main(int argc, char *argv[])
 		// printf("\n");
 
 		// #if DEBUG
-			// printf("-------- End of iteration %d --------\n\n", j);
+			printf("-------- End of iteration %d --------\n\n", j);
 		// #endif
 
 		end = omp_get_wtime();
