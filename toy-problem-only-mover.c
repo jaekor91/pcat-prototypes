@@ -33,10 +33,10 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 10000 // Number of times to loop before sampling
-	#define NSAMPLE 10// Numboer samples to collect
+	#define NLOOP 1000 // Number of times to loop before sampling
+	#define NSAMPLE 100// Numboer samples to collect
 #endif 
-#define PRINT_PERF 1 // If 1, print peformance after every sample.
+#define PRINT_PERF 0 // If 1, print peformance after every sample.
 #define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
 
 
@@ -142,8 +142,11 @@ int main(int argc, char *argv[])
 	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
 	printf("Number of sample to collect: %d\n", NSAMPLE);
 	printf("Thinning rate: %d\n", NLOOP);
+	printf("Total number of parallel iterations: %.2f K\n", (NSAMPLE * NLOOP) / (1e03));
+	printf("Total number of serial iterations: %.2f M\n", (NSAMPLE * NLOOP * NUM_BLOCKS_TOTAL) / (1e06));
 	printf("Block width: %d\n", BLOCK);
 	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
+	printf("Proposal region width: %d\n", REGION);
 	printf("Data width: %d\n", DATA_WIDTH);
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_TOTAL);
@@ -828,7 +831,11 @@ int main(int argc, char *argv[])
 		dt = end - start; // Compute time took for sampling
 		// Calculatin the time took.
 		dt_per_iter = (dt / (double) NLOOP) * (1e06);
-		printf("Sample %d: Time per sample (us), T_serial: %.3f, %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
+		#if PRINT_PERF
+			printf("Sample %d: Time per sample (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
+		#endif 
 	} // End of sampling looop
+
+	printf("Sampling ended. Exit program.");
 }
 
