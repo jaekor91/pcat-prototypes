@@ -54,7 +54,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 4
+#define NUM_BLOCKS_PER_DIM 16
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -157,7 +157,7 @@ int main(int argc, char *argv[])
 	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
 	printf("Number of sample to collect: %d\n", NSAMPLE);
 	printf("Thinning rate: %d\n", NLOOP);
-	printf("Total number of parallel iterations: %d, (%d K)\n", (NSAMPLE * NLOOP), (NSAMPLE * NLOOP) / (1e03));
+	printf("Total number of parallel iterations: %d, (%d K)\n", (NSAMPLE * NLOOP), (NSAMPLE * NLOOP) / (1000));
 	printf("Total number of serial iterations: %.2f M\n", (NSAMPLE * NLOOP * NUM_BLOCKS_TOTAL) / (1e06));
 	printf("Block width: %d\n", BLOCK);
 	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
