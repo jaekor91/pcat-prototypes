@@ -56,7 +56,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 3
+#define NUM_BLOCKS_PER_DIM 4
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -79,7 +79,7 @@
 
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
-#define TRUE_BACK 10000.0
+#define TRUE_BACK 100000.0
 #define FLUX_UPPER_LIMIT 500.0 // If the proposed flux values become greater than this, then set it to this value.
 
 // Some MACRO functions
@@ -180,11 +180,35 @@ int main(int argc, char *argv[])
 
 	srand(123); // Initializing random seed for the whole program.
 	int i, j, s, k, l, m; // Initialization and loop variables. s for sample.
+	int jstar = 0; // Number of stars after coalescing.
+	int istar;
+	int xx, yy;	
 	int time_seed; // Every time parallel region is entered, reset this seed as below.
 	time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);
 
 
 	// ----- Declare global, shared variables ----- //
+	// Image DATA, MODEL, design matrix
+	int size_of_A = NPIX2 * INNER;
+	__attribute__((aligned(64))) float DATA[IMAGE_SIZE]; // Generate positive test data. 64 bytes aligned.
+	__attribute__((aligned(64))) float MODEL[IMAGE_SIZE]; // Allocate model image. 64 bytes aligned.
+	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix [INNER, NPIX2]
+
+	// Initialize to flat values.
+	init_mat_float(DATA, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region
+	init_mat_float(MODEL, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region
+	init_mat_float(A, size_of_A, 1e-06, 0); // Fill data with random values
+
+	// Read in the psf design matrix A
+	FILE *fpA = NULL;
+	fpA = fopen("A_gauss.bin", "rb");
+	fread(&A, sizeof(float), size_of_A, fpA);
+	// print_float_vec(A, size_of_A); // Debug
+	// printf("A[312]: %.3f\n", A[312]); // Should be 0.2971158 (based on Gaussian psf) // Debug
+	fclose(fpA);
+
+
+	// ------ Initialize MODEL matrix according to the random draws. ------ //
 	// Object array. Each object gets AVX_CACHE space or 16 floats.
 	__attribute__((aligned(64))) float OBJS[AVX_CACHE * MAX_STARS];
 	// Array that tells which objects belong which arrays. See below for usage.
@@ -195,7 +219,7 @@ int main(int argc, char *argv[])
 	// ----- Initialize object array ----- //
 	#pragma omp parallel for simd shared(OBJS)
 	for (i=0; i< AVX_CACHE * MAX_STARS; i++){
-		OBJS[i] = -1; // Can't set it to zero since 0 is a valid object number.
+		OBJS[i] = -1; // 
 	}
     #pragma omp parallel shared(OBJS)
     {
@@ -216,27 +240,139 @@ int main(int argc, char *argv[])
 		OBJS_HASH[i] = -1; // Can't set it to zero since 0 is a valid object number.
 	}	
 
+	// Gather operation
+	__attribute__((aligned(64))) float init_x[MAX_STARS];
+	__attribute__((aligned(64))) float init_y[MAX_STARS];
+	__attribute__((aligned(64))) float init_f[MAX_STARS];
+	for (i=0; i<MAX_STARS; i++){
+		int idx = i * AVX_CACHE;
+		float x = OBJS[idx + BIT_X];
+		float y = OBJS[idx + BIT_Y];
+		float f = OBJS[idx + BIT_FLUX];
+		init_x[i] = x;
+		init_y[i] = y;
+		init_f[i] = f;
+	}	
 
-	// Image DATA, MODEL, design matrix
-	int size_of_A = NPIX2 * INNER;
-	__attribute__((aligned(64))) float DATA[IMAGE_SIZE]; // Generate positive test data. 64 bytes aligned.
-	__attribute__((aligned(64))) float MODEL[IMAGE_SIZE]; // Allocate model image. 64 bytes aligned.
-	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix [INNER, NPIX2]
+	// Calculating dX for each star.
+	__attribute__((aligned(64))) int init_ix[MAX_STARS];
+	__attribute__((aligned(64))) int init_iy[MAX_STARS];					
+	#pragma omp parallel for simd
+	for (k=0; k< MAX_STARS; k++){
+		init_ix[k] = ceil(init_x[k]); // Padding width is already accounted for.
+		init_iy[k] = ceil(init_y[k]);
+	} // end of ix, iy computation
+	
+	// For vectorization, compute dX^T [AVX_CACHE2, MAX_STARS] and transpose to dX [MAXCOUNT, AVX_CACHE2]
+	__attribute__((aligned(64))) float init_dX_T[AVX_CACHE2 * MAX_STARS];
 
-	// Initialize to flat values.
-	init_mat_float(DATA, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value
-	init_mat_float(MODEL, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value
-	init_mat_float(A, size_of_A, 1e-06, 0); // Fill data with random values
+	#pragma omp parallel for simd
+	for (k=0; k < MAX_STARS; k++){
+		// Calculate dx, dy						
+		float px = init_x[k];
+		float py = init_y[k];
+		float dpx = init_ix[k]-px;
+		float dpy = init_iy[k]-py;
 
-	// Read in the psf design matrix A
-	FILE *fpA = NULL;
-	fpA = fopen("A_gauss.bin", "rb");
-	fread(&A, sizeof(float), size_of_A, fpA);
-	// print_float_vec(A, size_of_A); // Debug
-	// printf("A[312]: %.3f\n", A[312]); // Should be 0.2971158 (based on Gaussian psf) // Debug
-	fclose(fpA);
+		// flux values
+		float pf = init_f[k];
 
-	// Initialize DATA matrix by either reading in an old data or generating a new mock.
+		// Compute dX * f
+		init_dX_T[k] = pf; //
+		// dx
+		init_dX_T[MAX_STARS + k] = dpx * pf; 
+		// dy
+		init_dX_T[MAX_STARS * 2+ k] = dpy * pf; 
+		// dx*dx
+		init_dX_T[MAX_STARS * 3+ k] = dpx * dpx * pf; 
+		// dx*dy
+		init_dX_T[MAX_STARS * 4+ k] = dpx * dpy * pf; 
+		// dy*dy
+		init_dX_T[MAX_STARS * 5+ k] = dpy * dpy * pf; 
+		// dx*dx*dx
+		init_dX_T[MAX_STARS * 6+ k] = dpx * dpx * dpx * pf; 
+		// dx*dx*dy
+		init_dX_T[MAX_STARS * 7+ k] = dpx * dpx * dpy * pf; 
+		// dx*dy*dy
+		init_dX_T[MAX_STARS * 8+ k] = dpx * dpy * dpy * pf; 
+		// dy*dy*dy
+		init_dX_T[MAX_STARS * 9+ k] = dpy * dpy * dpy * pf; 
+	} // end of dX computation 
+	#if SERIAL_DEBUG
+		printf("Computed dX.\n");
+	#endif
+	
+	// Transposing the matrices: dX^T [AVX_CACHE2, MAX_STARS] to dX [MAXCOUNT, AVX_CACHE2]
+	// Combine current and proposed arrays. 
+	__attribute__((aligned(64))) float init_dX[AVX_CACHE2 * MAX_STARS];
+	#pragma omp parallel for collapse(2)
+	for (k=0; k<MAX_STARS; k++){
+		for (l=0; l<INNER; l++){
+			init_dX[k*AVX_CACHE2+l] = init_dX_T[MAX_STARS*l+k];
+		}
+	}// end of transpose
+	#if SERIAL_DEBUG
+		printf("Finished transposing dX.\n");
+	#endif
+
+
+	// ----- Hashing ----- //
+	// This steps reduces number of PSFs that need to be evaluated.					
+	__attribute__((aligned(64))) int init_hash[DATA_SIZE];
+	// Note: Objs may fall out of the inner proposal region. However
+	// it shouldn't go too much out of it. So as long as MARGIN1 is 
+	// 1 or 2, there should be no problem. 
+	#pragma omp parallel for simd // Explicit vectorization
+    for (k=0; k<DATA_SIZE; k++) { init_hash[k] = -1; }
+	#if SERIAL_DEBUG
+		printf("Initialized hashing variable.\n");
+	#endif
+
+    jstar = 0; // Number of stars after coalescing.
+    for (istar = 0; istar < MAX_STARS; istar++) // This must be a serial operation.
+    {
+        xx = init_ix[istar];
+        yy = init_iy[istar];
+        int idx = xx*BLOCK+yy;
+        if (init_hash[idx] != -1) {
+        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
+            for (l=0; l<INNER; l++) { init_dX[init_hash[idx]*AVX_CACHE2+l] += init_dX[istar*AVX_CACHE2+l]; }
+        }
+        else {
+            init_hash[idx] = jstar;
+            #pragma omp simd // Compiler knows how to unroll.
+            for (l=0; l<INNER; l++) { init_dX[init_hash[idx]*AVX_CACHE2+l] = init_dX[istar*AVX_CACHE2+l]; }
+            init_ix[jstar] = xx;
+            init_iy[jstar] = yy;
+            jstar++;
+        }
+    }
+    #if SERIAL_DEBUG
+		printf("Finished hashing.\n");
+	#endif
+
+	// row and col location of the star based on X, Y values.
+	// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
+	// Calculate PSF and then add to model proposed
+	for (k=0; k<jstar; k++){
+		int idx_x = init_ix[k]; // Note that ix and iy are already within block position.
+		int idx_y = init_iy[k];
+		#if SERIAL_DEBUG
+			printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
+		#endif
+		#pragma omp simd collapse(2)
+		for (l=0; l<NPIX2; l++){
+			for (m=0; m<INNER; m++){
+				// AVX_CACHE_VERSION
+				MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += init_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+			} 
+		}// End of PSF calculation for K-th star
+	}
+	// ----- End of initialization of the MODEL ------ //	
+
+	
+
+	// ------ Initialize DATA matrix by either reading in an old data or generating a new mock ----- //
 	#if GENERATE_NEW_MOCK 
 		__attribute__((aligned(64))) float OBJS_TRUE[AVX_CACHE * MAX_STARS];
 		__attribute__((aligned(64))) float mock_x[MAX_STARS];
@@ -354,9 +490,7 @@ int main(int argc, char *argv[])
 			printf("Initialized hashing variable.\n");
 		#endif
 
-	    int jstar = 0; // Number of stars after coalescing.
-		int istar;
-		int xx, yy;
+
 	    for (istar = 0; istar < MAX_STARS; istar++) // This must be a serial operation.
 	    {
 	        xx = mock_ix[istar];
@@ -407,24 +541,49 @@ int main(int argc, char *argv[])
 		fp_DATA = fopen("MOCK_DATA.bin", "wb"); // Note that the data matrix is already padded.
 		fwrite(&DATA, sizeof(float), IMAGE_SIZE, fp_DATA);
 		fclose(fp_DATA);		
-
-
-	#else
+	#else // If GENERATE_NEW_MOCK is 0
 		FILE *fp_DATA = NULL;
 		fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
 		fread(&DATA, sizeof(float), IMAGE_SIZE, fp_DATA);
 		fclose(fp_DATA);
-	#endif // End of GENERATE NEW MOCK
-
-
-
-	// Initialize MODEL matrix according to the random draws above.
+	#endif 
+	// ------ End of GENERATE NEW MOCK ------- //
 
 
 
 
 
 
+
+	#if COMPUTE_LOGLIKE
+		double dt_loglike0 = -omp_get_wtime();
+
+		// ---- Calculate the likelihood based on the curret model ---- //
+		double lnL0 = 0; // Loglike 
+		double model_sum0 = 0; // Sum of all model values w/o padding
+		double data_sum0 = 0; // Sum of all data values w/o padding
+		#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL0, model_sum0, data_sum0)
+		for (i=BLOCK/2; i<((BLOCK/2)+DATA_WIDTH); i++){
+			for (j=BLOCK/2; j<((BLOCK/2)+DATA_WIDTH); j++){
+				int idx = i*PADDED_DATA_WIDTH+j;
+				// Poisson likelihood
+				float tmp = MODEL[idx];
+				float f = log(tmp);
+				float g = f * DATA[idx];
+				lnL0 += g - tmp;
+				model_sum0 += tmp;
+				data_sum0 += DATA[idx];
+			}// end of column loop
+		} // End of row loop
+
+		dt_loglike0 += omp_get_wtime();
+		printf("\n");
+		printf("Time for computing initial loglike (us): %.3f\n", dt_loglike0 * 1e06);
+		printf("Initial lnL0: %.3f\n", lnL0);
+		printf("Initial MODEL sum: %.3f\n", model_sum0);
+		printf("Initial DATA sum: %.3f\n", data_sum0);
+		printf("\n");		
+	#endif
 
 
 	// Files for saving (NSAMPLE, MAX_STARS) of x, y, f each or (NSAMPLE) of loglike. 
@@ -437,6 +596,24 @@ int main(int argc, char *argv[])
     fpy = fopen("chain_y.bin", "wb");
     fpf = fopen("chain_f.bin", "wb");
     fplnL = fopen("chain_lnL.bin", "wb");
+
+	#if SAVE_CHAIN
+		double dt_savechain0 = -omp_get_wtime();
+		for (i=0; i<MAX_STARS; i++){
+			int idx = i * AVX_CACHE;
+			float x = OBJS[idx + BIT_X];
+			float y = OBJS[idx + BIT_Y];
+			float f = OBJS[idx + BIT_FLUX];
+			fwrite(&x, sizeof(float), 1, fpx);
+			fwrite(&y, sizeof(float), 1, fpy);
+			fwrite(&f, sizeof(float), 1, fpf);				
+		}
+		#if COMPUTE_LOGLIKE
+			fwrite(&lnL0, sizeof(double), 1, fplnL);
+		#endif
+		dt_savechain0 += omp_get_wtime();
+	#endif
+
 
 	double start, end, dt, dt_per_iter; // For timing purpose.
 	double dt_total, start_total, end_total; // Measure time taken for the whole run.	
@@ -538,14 +715,8 @@ int main(int argc, char *argv[])
 			// IMPORTANT: X is the row direction and Y is the column direction.
 			time_seed = (int) (time(NULL)) * rand();	
 			int ibx, iby; // Block idx	
-			#if GENERATE_NEW_MOCK 
-				#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
-					private(ibx, iby, k, l, m, jstar, istar, xx, yy)
-			#else
-				#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
-					private(ibx, iby)
-			#endif 
-
+			#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
+				private(ibx, iby, k, l, m, jstar, istar, xx, yy)
 			for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction				
 				for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction
 					int k, l, m; // private loop variables
