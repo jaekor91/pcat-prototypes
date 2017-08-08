@@ -24,8 +24,8 @@
 #define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
 #define NUM_THREADS 1 // Number of threads used for execution.
-#define PERIODIC_MODEL_RECOMPUTE 1 // If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
-#define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
+#define PERIODIC_MODEL_RECOMPUTE 1// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
+#define MODEL_RECOMPUTE_PERIOD 100 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
@@ -39,11 +39,11 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 10000// Number of times to loop before sampling
+	#define NLOOP 1000// Number of times to loop before sampling
 	#define NSAMPLE 100// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
-#define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
+#define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
 #define SAVE_MODEL 1 // If 1, save the model corresponding to each sample as well as the initial.
@@ -59,7 +59,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 2
+#define NUM_BLOCKS_PER_DIM 1
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -72,8 +72,8 @@
 #define DATA_SIZE (DATA_WIDTH * DATA_WIDTH)
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define STAR_DENSITY_PER_BLOCK ((int) (0.05 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS 5 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
+#define MAX_STARS 10 // 	(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -84,7 +84,7 @@
 #define TRUE_ALPHA 2.00
 #define TRUE_BACK 179.0
 #define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
-#define FLUX_UPPER_LIMIT 251.0 // If the proposed flux values become greater than this, then set it to this value.
+#define FLUX_UPPER_LIMIT 5000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
 
@@ -138,6 +138,7 @@ void init_mat_float(float* mat, int size, float fill_val, int rand_fill)
 		}
 	}
 	else{
+		#pragma omp parallel for simd
 		for (i=0; i<size; i++){
 			mat[i] = fill_val;
 		}
@@ -880,7 +881,7 @@ int main(int argc, char *argv[])
 							// Position
 							float dpos_rms = 12.0 / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
 							#if FREEZE_XY
-								float dx = 1e-4;
+								float dx = 1e-3;
 								float dy = 0;
 							#else
 								float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
@@ -927,7 +928,7 @@ int main(int argc, char *argv[])
 						// ------ compute flux distribution prior factor ------ //
 						float factor = 0; // Prior factor 
 						for (k=0; k< p_nobjs; k++){
-							factor -= TRUE_MIN_FLUX * log(proposed_flux[k]/current_flux[k]); // Accumulating factor											
+							factor -= TRUE_ALPHA * log(proposed_flux[k]/current_flux[k]); // Accumulating factor											
 						}
 						#if SERIAL_DEBUG
 							printf("Finished evaluating flux distribution prior factor.\n");
@@ -1177,13 +1178,16 @@ int main(int argc, char *argv[])
 							printf("Computed the new loglike.\n");
 						#endif
 						
+
 					
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
 						// If bigger then undo the addition by subtracting what was added to the model image.
 						#if RANDOM_WALK
 							if (0) // Short circuit so that the proposed changes are always accpeted.
 						#else
-							if (b_loglike < p_loglike)
+							double dlnL = p_loglike	- b_loglike;
+							float u = (rand_r(&p_seed) / (float) RAND_MAX); // A random uniform number.
+							if (log(u) > dlnL + factor)
 						#endif
 						{
 							// If the proposed model is rejected. Do nothing.
