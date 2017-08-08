@@ -79,7 +79,7 @@
 
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
-#define TRUE_BACK 179.0
+#define TRUE_BACK 50000.0
 #define FLUX_UPPER_LIMIT 500.0 // If the proposed flux values become greater than this, then set it to this value.
 
 // Some MACRO functions
@@ -280,13 +280,27 @@ int main(int argc, char *argv[])
 		fclose(fpx_true);
 		fclose(fpy_true);
 		fclose(fpf_true);
-		// Poisson realization of the underlying model
+		// Calculating dX for each star.
 
-		// 
+		// Hashing.
+
+		// Generating data by adding PSFs on top of background.
+
+
+		// Poisson realization of the underlying truth.
+
+		// Saving the data
+		FILE *fp_DATA = NULL;
+		// fp_DATA = fopen("MOCK_DATA.bin", "wb"); // Note that the data matrix is already padded.
+		// fread(&DATA, sizeof(float), IMAGE_SIZE, fp_DATA);
+		fclose(fp_DATA);		
+
+
 	#else
 		FILE *fp_DATA = NULL;
 		fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
 		fread(&DATA, sizeof(float), IMAGE_SIZE, fp_DATA);
+		fclose(fp_DATA);
 	#endif
 
 	// Initialize MODEL matrix according to the random draws above.
