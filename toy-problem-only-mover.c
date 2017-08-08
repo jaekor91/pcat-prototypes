@@ -37,7 +37,7 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 1// Number of times to loop before sampling
+	#define NLOOP 5000// Number of times to loop before sampling
 	#define NSAMPLE 100// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
@@ -71,7 +71,7 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.05 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS 10 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 20 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -83,6 +83,8 @@
 #define TRUE_BACK 179.0
 #define FLUX_UPPER_LIMIT 251.0 // If the proposed flux values become greater than this, then set it to this value.
 #define SET_UPPER_FLUX_LIMIT 1 // If 1, the above limit is applied.
+#define FREEZE_XY 1 // If 1, freeze the X, Y positins of the objs.
+#define FREEZE_F 1 // If 1, free the flux
 
 // Some MACRO functions
  #define max(a,b) \
@@ -859,7 +861,11 @@ int main(int argc, char *argv[])
 						#pragma omp simd
 						for (k=0; k<p_nobjs; k++){
 							// Flux
-							float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * 12.0; // (60./np.sqrt(25.))
+							#if FREEZE_F
+								float df = 0;
+							#else
+								float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * 12.0; // (60./np.sqrt(25.))
+							#endif
 							float f0 = current_flux[k];
 							float pf1 = f0+df;
 							float pf2 = -pf1 + 2*TRUE_MIN_FLUX; // If the proposed flux is below minimum, bounce off. Why this particular form?
@@ -871,8 +877,14 @@ int main(int argc, char *argv[])
 
 							// Position
 							float dpos_rms = 12.0 / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
-							float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
-							float dy = randn[BIT_Y * MAXCOUNT_BLOCK + k] * dpos_rms;
+							#if FREEZE_XY
+								float dx = 1e-3;
+								float dy = 0;
+							#else
+								float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
+								float dy = randn[BIT_Y * MAXCOUNT_BLOCK + k] * dpos_rms;
+							#endif
+
 							proposed_x[k] = current_x[k] + dx;
 							proposed_y[k] = current_y[k] + dy;
 						}
