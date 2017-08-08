@@ -21,9 +21,9 @@
 #include <sys/mman.h>
 
 
-#define GENERATE_NEW_MOCK 0 // If true, generate new mock. If false, then read in already generated image.
+#define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
-#define NUM_THREADS 4 // Number of threads used for execution.
+#define NUM_THREADS 1 // Number of threads used for execution.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
@@ -44,6 +44,7 @@
 #define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
+#define SAVE_MODEL 1 // If 1, save the model corresponding to each sample as well as the initial.
 
 // Define global dimensions
 #define AVX_CACHE2 16
@@ -56,7 +57,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 6// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 4
+#define NUM_BLOCKS_PER_DIM 2
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -79,7 +80,7 @@
 
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
-#define TRUE_BACK 100000.0
+#define TRUE_BACK 179.0
 #define FLUX_UPPER_LIMIT 500.0 // If the proposed flux values become greater than this, then set it to this value.
 
 // Some MACRO functions
@@ -184,7 +185,6 @@ int main(int argc, char *argv[])
 	int istar;
 	int xx, yy;	
 	int time_seed; // Every time parallel region is entered, reset this seed as below.
-	time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);
 
 
 	// ----- Declare global, shared variables ----- //
@@ -221,6 +221,7 @@ int main(int argc, char *argv[])
 	for (i=0; i< AVX_CACHE * MAX_STARS; i++){
 		OBJS[i] = -1; // 
 	}
+	time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);	
     #pragma omp parallel shared(OBJS)
     {
 		unsigned int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
@@ -230,8 +231,8 @@ int main(int argc, char *argv[])
 			OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 			OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
 			float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
-			// OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
-            OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
+			OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
 		}
 	}
 	// Initialize hashing variable	
@@ -318,12 +319,12 @@ int main(int argc, char *argv[])
 
 	// ----- Hashing ----- //
 	// This steps reduces number of PSFs that need to be evaluated.					
-	__attribute__((aligned(64))) int init_hash[DATA_SIZE];
+	__attribute__((aligned(64))) int init_hash[IMAGE_SIZE];
 	// Note: Objs may fall out of the inner proposal region. However
 	// it shouldn't go too much out of it. So as long as MARGIN1 is 
 	// 1 or 2, there should be no problem. 
 	#pragma omp parallel for simd // Explicit vectorization
-    for (k=0; k<DATA_SIZE; k++) { init_hash[k] = -1; }
+    for (k=0; k<IMAGE_SIZE; k++) { init_hash[k] = -1; }
 	#if SERIAL_DEBUG
 		printf("Initialized hashing variable.\n");
 	#endif
@@ -333,7 +334,7 @@ int main(int argc, char *argv[])
     {
         xx = init_ix[istar];
         yy = init_iy[istar];
-        int idx = xx*BLOCK+yy;
+        int idx = xx*PADDED_DATA_WIDTH+yy;
         if (init_hash[idx] != -1) {
         	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
             for (l=0; l<INNER; l++) { init_dX[init_hash[idx]*AVX_CACHE2+l] += init_dX[istar*AVX_CACHE2+l]; }
@@ -358,7 +359,7 @@ int main(int argc, char *argv[])
 		int idx_x = init_ix[k]; // Note that ix and iy are already within block position.
 		int idx_y = init_iy[k];
 		#if SERIAL_DEBUG
-			printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
+			printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
 		#endif
 		#pragma omp simd collapse(2)
 		for (l=0; l<NPIX2; l++){
@@ -370,7 +371,7 @@ int main(int argc, char *argv[])
 	}
 	// ----- End of initialization of the MODEL ------ //	
 
-	
+
 
 	// ------ Initialize DATA matrix by either reading in an old data or generating a new mock ----- //
 	#if GENERATE_NEW_MOCK 
@@ -378,7 +379,12 @@ int main(int argc, char *argv[])
 		__attribute__((aligned(64))) float mock_x[MAX_STARS];
 		__attribute__((aligned(64))) float mock_y[MAX_STARS];
 		__attribute__((aligned(64))) float mock_f[MAX_STARS];
-
+		// Initialize 
+		#pragma omp parallel for simd shared(OBJS_TRUE)
+		for (i=0; i< AVX_CACHE * MAX_STARS; i++){
+			OBJS_TRUE[i] = -1; // 
+		}
+		time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);		
 	    #pragma omp parallel shared(OBJS_TRUE)
 	    {
 			unsigned int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
@@ -480,22 +486,25 @@ int main(int argc, char *argv[])
 
 		// ----- Hashing ----- //
 		// This steps reduces number of PSFs that need to be evaluated.					
-		__attribute__((aligned(64))) int mock_hash[DATA_SIZE];
+		__attribute__((aligned(64))) int mock_hash[IMAGE_SIZE];
 		// Note: Objs may fall out of the inner proposal region. However
 		// it shouldn't go too much out of it. So as long as MARGIN1 is 
 		// 1 or 2, there should be no problem. 
 		#pragma omp parallel for simd // Explicit vectorization
-	    for (k=0; k<DATA_SIZE; k++) { mock_hash[k] = -1; }
+	    for (k=0; k<IMAGE_SIZE; k++) { mock_hash[k] = -1; }
     	#if SERIAL_DEBUG
-			printf("Initialized hashing variable.\n");
+			printf("Mock: Initialized hashing variable.\n");
 		#endif
 
-
+		jstar = 0;
 	    for (istar = 0; istar < MAX_STARS; istar++) // This must be a serial operation.
 	    {
 	        xx = mock_ix[istar];
 	        yy = mock_iy[istar];
-	        int idx = xx*BLOCK+yy;
+	        #if SERIAL_DEBUG
+				printf("xx, yy: %d, %d\n", xx, yy);
+			#endif
+	        int idx = xx*PADDED_DATA_WIDTH+yy;
 	        if (mock_hash[idx] != -1) {
 	        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
 	            for (l=0; l<INNER; l++) { mock_dX[mock_hash[idx]*AVX_CACHE2+l] += mock_dX[istar*AVX_CACHE2+l]; }
@@ -508,6 +517,9 @@ int main(int argc, char *argv[])
 	            mock_iy[jstar] = yy;
 	            jstar++;
 	        }
+	        #if SERIAL_DEBUG
+				printf("check. jstar %d\n", jstar);
+			#endif
 	    }
 	    #if SERIAL_DEBUG
 			printf("Finished hashing.\n");
@@ -517,10 +529,10 @@ int main(int argc, char *argv[])
 		// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
 		// Calculate PSF and then add to model proposed
 		for (k=0; k<jstar; k++){
-			int idx_x = mock_ix[k]; // Note that ix and iy are already within block position.
+			int idx_x = mock_ix[k]; 
 			int idx_y = mock_iy[k];
 			#if SERIAL_DEBUG
-				printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
+				printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
 			#endif
 			#pragma omp simd collapse(2)
 			for (l=0; l<NPIX2; l++){
@@ -579,7 +591,7 @@ int main(int argc, char *argv[])
 		dt_loglike0 += omp_get_wtime();
 		printf("\n");
 		printf("Time for computing initial loglike (us): %.3f\n", dt_loglike0 * 1e06);
-		printf("Initial lnL0: %.3f\n", lnL0);
+		printf("Initial lnL: %.3f\n", lnL0);
 		printf("Initial MODEL sum: %.3f\n", model_sum0);
 		printf("Initial DATA sum: %.3f\n", data_sum0);
 		printf("\n");		
@@ -597,6 +609,7 @@ int main(int argc, char *argv[])
     fpf = fopen("chain_f.bin", "wb");
     fplnL = fopen("chain_lnL.bin", "wb");
 
+    // Save the initial draws for the model
 	#if SAVE_CHAIN
 		double dt_savechain0 = -omp_get_wtime();
 		for (i=0; i<MAX_STARS; i++){
@@ -612,6 +625,15 @@ int main(int argc, char *argv[])
 			fwrite(&lnL0, sizeof(double), 1, fplnL);
 		#endif
 		dt_savechain0 += omp_get_wtime();
+	#endif
+
+	// Save the initial model
+	#if SAVE_MODEL
+		// Saving the data
+		FILE *fp_MODEL = NULL;
+		fp_MODEL = fopen("MOCK_MODELS.bin", "wb"); // Note that the data matrix is already padded.
+		fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL);
+		fclose(fp_MODEL); // Keep adding to this.
 	#endif
 
 
