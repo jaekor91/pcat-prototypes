@@ -21,7 +21,7 @@
 #include <sys/mman.h>
 
 
-#define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
+#define GENERATE_NEW_MOCK 0 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
 #define NUM_THREADS 4 // Number of threads used for execution.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
@@ -79,7 +79,7 @@
 
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
-#define TRUE_BACK 50000.0
+#define TRUE_BACK 10000.0
 #define FLUX_UPPER_LIMIT 500.0 // If the proposed flux values become greater than this, then set it to this value.
 
 // Some MACRO functions
@@ -414,9 +414,15 @@ int main(int argc, char *argv[])
 		fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
 		fread(&DATA, sizeof(float), IMAGE_SIZE, fp_DATA);
 		fclose(fp_DATA);
-	#endif
+	#endif // End of GENERATE NEW MOCK
+
+
 
 	// Initialize MODEL matrix according to the random draws above.
+
+
+
+
 
 
 
@@ -532,8 +538,14 @@ int main(int argc, char *argv[])
 			// IMPORTANT: X is the row direction and Y is the column direction.
 			time_seed = (int) (time(NULL)) * rand();	
 			int ibx, iby; // Block idx	
-			#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
-				private(ibx, iby, k, l, m, jstar, istar, xx, yy)
+			#if GENERATE_NEW_MOCK 
+				#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
+					private(ibx, iby, k, l, m, jstar, istar, xx, yy)
+			#else
+				#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
+					private(ibx, iby)
+			#endif 
+
 			for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction				
 				for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction
 					int k, l, m; // private loop variables
