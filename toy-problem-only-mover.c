@@ -37,8 +37,8 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 1 // Number of times to loop before sampling
-	#define NSAMPLE 10// Numboer samples to collect
+	#define NLOOP 1// Number of times to loop before sampling
+	#define NSAMPLE 100// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
@@ -71,7 +71,7 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.05 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 10 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -81,7 +81,8 @@
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
 #define TRUE_BACK 179.0
-#define FLUX_UPPER_LIMIT 500.0 // If the proposed flux values become greater than this, then set it to this value.
+#define FLUX_UPPER_LIMIT 251.0 // If the proposed flux values become greater than this, then set it to this value.
+#define SET_UPPER_FLUX_LIMIT 1 // If 1, the above limit is applied.
 
 // Some MACRO functions
  #define max(a,b) \
@@ -197,7 +198,7 @@ int main(int argc, char *argv[])
 	// Initialize to flat values.
 	init_mat_float(DATA, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region
 	init_mat_float(MODEL, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region
-	init_mat_float(A, size_of_A, 1e-06, 0); // Fill data with random values
+	init_mat_float(A, size_of_A, 1e-03, 0); // Fill data with small values
 
 	// Read in the psf design matrix A
 	FILE *fpA = NULL;
@@ -231,7 +232,11 @@ int main(int argc, char *argv[])
 			OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 			OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
 			float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
-			OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+			#if SET_UPPER_FLUX_LIMIT
+				OBJS[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
+			#else
+				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+			#endif
             // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
 		}
 	}
@@ -394,7 +399,11 @@ int main(int argc, char *argv[])
 				OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 				OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
 				float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
-				OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+				#if SET_UPPER_FLUX_LIMIT
+					OBJS_TRUE[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
+				#else
+					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+				#endif
 	            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
 			}
 		}
@@ -856,7 +865,9 @@ int main(int argc, char *argv[])
 							float pf2 = -pf1 + 2*TRUE_MIN_FLUX; // If the proposed flux is below minimum, bounce off. Why this particular form?
 							proposed_flux[k] = max(pf1, pf2);
 
-							// proposed_flux[k] = min(proposed_flux[k], FLUX_UPPER_LIMIT); // If the proposed flux becomes too large, then set to the max val.
+							#if SET_UPPER_FLUX_LIMIT
+								proposed_flux[k] = min(proposed_flux[k], FLUX_UPPER_LIMIT); // If the proposed flux becomes too large, then set to the max val.
+							#endif
 
 							// Position
 							float dpos_rms = 12.0 / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
