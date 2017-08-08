@@ -37,7 +37,7 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 10000 // Number of times to loop before sampling
+	#define NLOOP 1 // Number of times to loop before sampling
 	#define NSAMPLE 10// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
@@ -633,7 +633,6 @@ int main(int argc, char *argv[])
 		FILE *fp_MODEL = NULL;
 		fp_MODEL = fopen("MOCK_MODELS.bin", "wb"); // Note that the data matrix is already padded.
 		fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL);
-		fclose(fp_MODEL); // Keep adding to this.
 	#endif
 
 
@@ -1285,6 +1284,11 @@ int main(int argc, char *argv[])
 			dt_savechain += omp_get_wtime();
 		#endif
 
+		#if SAVE_MODEL // Saving the MODEL after update
+			if (s < 100) { fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL); }
+			// conditional as a safe measure to memory overflow
+		#endif			
+
 		#if PRINT_PERF
 			printf("Sample %d: T_parallel (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
 			printf("Time for %d iterations (s): %.3f\n", NLOOP, dt);
@@ -1329,5 +1333,8 @@ int main(int argc, char *argv[])
 	fclose(fpy);
 	fclose(fpf);
 	fclose(fplnL);
+	#if SAVE_MODEL
+		fclose(fp_MODEL); // Keep adding to this.
+	#endif	
 }
 
