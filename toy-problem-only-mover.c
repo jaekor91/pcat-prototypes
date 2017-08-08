@@ -24,6 +24,8 @@
 #define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
 #define NUM_THREADS 1 // Number of threads used for execution.
+#define PERIODIC_MODEL_RECOMPUTE 1 // If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
+#define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
@@ -37,7 +39,7 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 5000// Number of times to loop before sampling
+	#define NLOOP 10000// Number of times to loop before sampling
 	#define NSAMPLE 100// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
@@ -71,7 +73,7 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.05 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS 20 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 5 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -81,10 +83,10 @@
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
 #define TRUE_BACK 179.0
+#define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
 #define FLUX_UPPER_LIMIT 251.0 // If the proposed flux values become greater than this, then set it to this value.
-#define SET_UPPER_FLUX_LIMIT 1 // If 1, the above limit is applied.
-#define FREEZE_XY 1 // If 1, freeze the X, Y positins of the objs.
-#define FREEZE_F 1 // If 1, free the flux
+#define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
+#define FREEZE_F 0 // If 1, free the flux
 
 // Some MACRO functions
  #define max(a,b) \
@@ -878,7 +880,7 @@ int main(int argc, char *argv[])
 							// Position
 							float dpos_rms = 12.0 / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
 							#if FREEZE_XY
-								float dx = 1e-3;
+								float dx = 1e-4;
 								float dy = 0;
 							#else
 								float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
@@ -1307,6 +1309,134 @@ int main(int argc, char *argv[])
 			dt_savechain += omp_get_wtime();
 		#endif
 
+		// After a certain number of iterations, periodically recompute the MODEL
+		// Re-cycle model initialization variables
+		#if PERIODIC_MODEL_RECOMPUTE
+			if ((j % MODEL_RECOMPUTE_PERIOD) == 0){
+				for (i=0; i<MAX_STARS; i++){
+					int idx = i * AVX_CACHE;
+					float x = OBJS[idx + BIT_X];
+					float y = OBJS[idx + BIT_Y];
+					float f = OBJS[idx + BIT_FLUX];
+					init_x[i] = x;
+					init_y[i] = y;
+					init_f[i] = f;
+				}	
+
+				// Calculating dX for each star.
+				#pragma omp parallel for simd
+				for (k=0; k< MAX_STARS; k++){
+					init_ix[k] = ceil(init_x[k]); // Padding width is already accounted for.
+					init_iy[k] = ceil(init_y[k]);
+				} // end of ix, iy computation
+				
+				// For vectorization, compute dX^T [AVX_CACHE2, MAX_STARS] and transpose to dX [MAXCOUNT, AVX_CACHE2]
+				#pragma omp parallel for simd
+				for (k=0; k < MAX_STARS; k++){
+					// Calculate dx, dy						
+					float px = init_x[k];
+					float py = init_y[k];
+					float dpx = init_ix[k]-px;
+					float dpy = init_iy[k]-py;
+
+					// flux values
+					float pf = init_f[k];
+
+					// Compute dX * f
+					init_dX_T[k] = pf; //
+					// dx
+					init_dX_T[MAX_STARS + k] = dpx * pf; 
+					// dy
+					init_dX_T[MAX_STARS * 2+ k] = dpy * pf; 
+					// dx*dx
+					init_dX_T[MAX_STARS * 3+ k] = dpx * dpx * pf; 
+					// dx*dy
+					init_dX_T[MAX_STARS * 4+ k] = dpx * dpy * pf; 
+					// dy*dy
+					init_dX_T[MAX_STARS * 5+ k] = dpy * dpy * pf; 
+					// dx*dx*dx
+					init_dX_T[MAX_STARS * 6+ k] = dpx * dpx * dpx * pf; 
+					// dx*dx*dy
+					init_dX_T[MAX_STARS * 7+ k] = dpx * dpx * dpy * pf; 
+					// dx*dy*dy
+					init_dX_T[MAX_STARS * 8+ k] = dpx * dpy * dpy * pf; 
+					// dy*dy*dy
+					init_dX_T[MAX_STARS * 9+ k] = dpy * dpy * dpy * pf; 
+				} // end of dX computation 
+				#if SERIAL_DEBUG
+					printf("Computed dX.\n");
+				#endif
+				
+				// Transposing the matrices: dX^T [AVX_CACHE2, MAX_STARS] to dX [MAXCOUNT, AVX_CACHE2]
+				// Combine current and proposed arrays. 
+				#pragma omp parallel for collapse(2)
+				for (k=0; k<MAX_STARS; k++){
+					for (l=0; l<INNER; l++){
+						init_dX[k*AVX_CACHE2+l] = init_dX_T[MAX_STARS*l+k];
+					}
+				}// end of transpose
+				#if SERIAL_DEBUG
+					printf("Finished transposing dX.\n");
+				#endif
+
+
+				// ----- Hashing ----- //
+				// This steps reduces number of PSFs that need to be evaluated.					
+				// Note: Objs may fall out of the inner proposal region. However
+				// it shouldn't go too much out of it. So as long as MARGIN1 is 
+				// 1 or 2, there should be no problem. 
+				#pragma omp parallel for simd // Explicit vectorization
+			    for (k=0; k<IMAGE_SIZE; k++) { init_hash[k] = -1; }
+				#if SERIAL_DEBUG
+					printf("Initialized hashing variable.\n");
+				#endif
+
+			    jstar = 0; // Number of stars after coalescing.
+			    for (istar = 0; istar < MAX_STARS; istar++) // This must be a serial operation.
+			    {
+			        xx = init_ix[istar];
+			        yy = init_iy[istar];
+			        int idx = xx*PADDED_DATA_WIDTH+yy;
+			        if (init_hash[idx] != -1) {
+			        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
+			            for (l=0; l<INNER; l++) { init_dX[init_hash[idx]*AVX_CACHE2+l] += init_dX[istar*AVX_CACHE2+l]; }
+			        }
+			        else {
+			            init_hash[idx] = jstar;
+			            #pragma omp simd // Compiler knows how to unroll.
+			            for (l=0; l<INNER; l++) { init_dX[init_hash[idx]*AVX_CACHE2+l] = init_dX[istar*AVX_CACHE2+l]; }
+			            init_ix[jstar] = xx;
+			            init_iy[jstar] = yy;
+			            jstar++;
+			        }
+			    }
+			    #if SERIAL_DEBUG
+					printf("Finished hashing.\n");
+				#endif
+
+				// Re-set the MODEL
+				init_mat_float(MODEL, IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region
+
+				// row and col location of the star based on X, Y values.
+				// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
+				// Calculate PSF and then add to model proposed
+				for (k=0; k<jstar; k++){
+					int idx_x = init_ix[k]; // Note that ix and iy are already within block position.
+					int idx_y = init_iy[k];
+					#if SERIAL_DEBUG
+						printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
+					#endif
+					#pragma omp simd collapse(2)
+					for (l=0; l<NPIX2; l++){
+						for (m=0; m<INNER; m++){
+							// AVX_CACHE_VERSION
+							MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += init_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+						} 
+					}// End of PSF calculation for K-th star				
+				}//End of model update with stars
+			}// End of model recompute
+		#endif // End of model recompute			
+
 		#if SAVE_MODEL // Saving the MODEL after update
 			if (s < 100) { fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL); }
 			// conditional as a safe measure to memory overflow
@@ -1325,7 +1455,8 @@ int main(int argc, char *argv[])
 				printf("Current Data sum: %.3f\n", data_sum);
 				printf("\n");
 			#endif
-		#endif				
+		#endif	
+
 	} // End of sampling looop
 	printf("Sampling ended.\n");
 
