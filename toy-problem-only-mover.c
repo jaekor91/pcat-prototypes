@@ -232,16 +232,16 @@ int main(int argc, char *argv[])
 	FILE *fpA = NULL;
 	fpA = fopen("A_gauss.bin", "rb");
 	fread(&A, sizeof(float), size_of_A, fpA);
-	// print_float_vec(A, size_of_A);
-	printf("A[312]: %.3f\n", A[312]); // Should be 0.2971158
+	// print_float_vec(A, size_of_A); // Debug
+	// printf("A[312]: %.3f\n", A[312]); // Should be 0.2971158 (based on Gaussian psf) // Debug
 	fclose(fpA);
 
 	// Initialize DATA matrix by either reading in an old data or generating a new mock.
 	#if GENERATE_NEW_MOCK 
 		__attribute__((aligned(64))) float OBJS_TRUE[AVX_CACHE * MAX_STARS];
-		__attribute__((aligned(64))) float x_true[MAX_STARS];
-		__attribute__((aligned(64))) float y_true[MAX_STARS];
-		__attribute__((aligned(64))) float f_true[MAX_STARS];
+		__attribute__((aligned(64))) float mock_x[MAX_STARS];
+		__attribute__((aligned(64))) float mock_y[MAX_STARS];
+		__attribute__((aligned(64))) float mock_f[MAX_STARS];
 
 	    #pragma omp parallel shared(OBJS_TRUE)
 	    {
@@ -256,31 +256,32 @@ int main(int argc, char *argv[])
 	            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
 			}
 		}
-		// Saving true x, y, f of underlying objects into files. 
+		// Saving mock x, y, f of underlying objects into files. 
 		// Note that htis part cannot be parallelized.
 		// Also, coalescing x, y, f into 1D array each.
-		FILE *fpx_true = NULL;
-		FILE *fpy_true = NULL;
-		FILE *fpf_true = NULL;
-		fpx_true = fopen("true_chain_x.bin", "wb");
-		fpy_true = fopen("true_chain_y.bin", "wb");
-		fpf_true = fopen("true_chain_f.bin", "wb");	
+		FILE *fpx_mock = NULL;
+		FILE *fpy_mock = NULL;
+		FILE *fpf_mock = NULL;
+		fpx_mock = fopen("mock_chain_x.bin", "wb");
+		fpy_mock = fopen("mock_chain_y.bin", "wb");
+		fpf_mock = fopen("mock_chain_f.bin", "wb");	
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i * AVX_CACHE;
 			float x = OBJS_TRUE[idx + BIT_X];
 			float y = OBJS_TRUE[idx + BIT_Y];
 			float f = OBJS_TRUE[idx + BIT_FLUX];
-			fwrite(&x, sizeof(float), 1, fpx_true);
-			fwrite(&y, sizeof(float), 1, fpy_true);
-			fwrite(&f, sizeof(float), 1, fpf_true);
-			x_true[i] = x;
-			y_true[i] = y;
-			f_true[i] = f;
+			fwrite(&x, sizeof(float), 1, fpx_mock);
+			fwrite(&y, sizeof(float), 1, fpy_mock);
+			fwrite(&f, sizeof(float), 1, fpf_mock);
+			mock_x[i] = x;
+			mock_y[i] = y;
+			mock_f[i] = f;
 		}
-		fclose(fpx_true);
-		fclose(fpy_true);
-		fclose(fpf_true);
-		// Calculating dX for each star.
+		fclose(fpx_mock);
+		fclose(fpy_mock);
+		fclose(fpf_mock);
+
+
 
 		// Hashing.
 
