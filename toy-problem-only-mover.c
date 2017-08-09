@@ -25,7 +25,7 @@
 // Number of threads, ieration, and debug
 #define NUM_THREADS 1 // Number of threads used for execution.
 #define PERIODIC_MODEL_RECOMPUTE 1// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
-#define MODEL_RECOMPUTE_PERIOD 100 // Recompute the model after 1000 iterations.
+#define MODEL_RECOMPUTE_PERIOD 1 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
@@ -39,7 +39,7 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else
-	#define NLOOP 1000// Number of times to loop before sampling
+	#define NLOOP 100000// Number of times to loop before sampling
 	#define NSAMPLE 100// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
@@ -73,7 +73,7 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS 10 // 	(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 1 // 	(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -87,6 +87,7 @@
 #define FLUX_UPPER_LIMIT 5000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
+#define FLUX_DIFF_RATE 12.0
 
 // Some MACRO functions
  #define max(a,b) \
@@ -867,7 +868,7 @@ int main(int argc, char *argv[])
 							#if FREEZE_F
 								float df = 0;
 							#else
-								float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * 12.0; // (60./np.sqrt(25.))
+								float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * FLUX_DIFF_RATE; // (60./np.sqrt(25.))
 							#endif
 							float f0 = current_flux[k];
 							float pf1 = f0+df;
@@ -879,7 +880,7 @@ int main(int argc, char *argv[])
 							#endif
 
 							// Position
-							float dpos_rms = 12.0 / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
+							float dpos_rms = FLUX_DIFF_RATE / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
 							#if FREEZE_XY
 								float dx = 1e-3;
 								float dy = 0;
