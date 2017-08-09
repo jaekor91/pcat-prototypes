@@ -940,7 +940,9 @@ int main(int argc, char *argv[])
 									float tmp = py - (BLOCK/2 + DATA_WIDTH - 1);									
 									proposed_y[k] -= 2 * tmp;
 								}
-							}									
+							}
+							// printf("%.3f\n", (proposed_x[k]-px));
+							// printf("%.3f\n", (proposed_y[k]-py));							
 						}// End of x,y bouncing
 						#if SERIAL_DEBUG
 							printf("Finished fixing x, y at boundaries.\n");
