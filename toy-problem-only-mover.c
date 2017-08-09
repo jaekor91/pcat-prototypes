@@ -41,7 +41,7 @@
 	#define NSAMPLE 2 // Numboer samples to collect
 #else // If in normal mode
 	#define NLOOP 1// Number of times to loop before sampling
-	#define NSAMPLE 100000// Numboer samples to collect
+	#define NSAMPLE 1000// Numboer samples to collect
 #endif 
 #define PRINT_PERF 0// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
@@ -211,7 +211,8 @@ int main(int argc, char *argv[])
 
 	// Read in the psf design matrix A
 	FILE *fpA = NULL;
-	fpA = fopen("A_gauss.bin", "rb");
+	fpA = fopen("A_sdss.bin", "rb");
+	// fpA = fopen("A_gauss.bin", "rb");	
 	fread(&A, sizeof(float), size_of_A, fpA);
 	// print_float_vec(A, size_of_A); // Debug
 	// printf("A[312]: %.3f\n", A[312]); // Should be 0.2971158 (based on Gaussian psf) // Debug
@@ -905,6 +906,7 @@ int main(int argc, char *argv[])
 							#else
 								float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
 								float dy = randn[BIT_Y * MAXCOUNT_BLOCK + k] * dpos_rms;
+								// printf("%.5f, ", dx);
 							#endif
 
 							proposed_x[k] = current_x[k] + dx;
