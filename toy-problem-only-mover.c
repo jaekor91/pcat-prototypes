@@ -602,9 +602,9 @@ int main(int argc, char *argv[])
 
 		// ---- Calculate the likelihood based on the curret model ---- //
 		double lnL0 = 0; // Loglike 
-		double model_sum0 = 0; // Sum of all model values w/o padding
-		double data_sum0 = 0; // Sum of all data values w/o padding
-		#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL0, model_sum0, data_sum0)
+		// double model_sum0 = 0; // Sum of all model values w/o padding
+		// double data_sum0 = 0; // Sum of all data values w/o padding
+		#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL0)//, model_sum0, data_sum0)
 		for (i=BLOCK/2; i<((BLOCK/2)+DATA_WIDTH); i++){
 			for (j=BLOCK/2; j<((BLOCK/2)+DATA_WIDTH); j++){
 				int idx = i*PADDED_DATA_WIDTH+j;
@@ -613,8 +613,8 @@ int main(int argc, char *argv[])
 				float f = log(tmp);
 				float g = f * DATA[idx];
 				lnL0 += g - tmp;
-				model_sum0 += tmp;
-				data_sum0 += DATA[idx];
+				// model_sum0 += tmp;
+				// data_sum0 += DATA[idx];
 			}// end of column loop
 		} // End of row loop
 
@@ -622,8 +622,8 @@ int main(int argc, char *argv[])
 		printf("\n");
 		printf("Time for computing initial loglike (us): %.3f\n", dt_loglike0 * 1e06);
 		printf("Initial lnL: %.3f\n", lnL0);
-		printf("Initial MODEL sum: %.3f\n", model_sum0);
-		printf("Initial DATA sum: %.3f\n", data_sum0);
+		// printf("Initial MODEL sum: %.3f\n", model_sum0);
+		// printf("Initial DATA sum: %.3f\n", data_sum0);
 		printf("\n");		
 	#endif
 
@@ -1297,9 +1297,9 @@ int main(int argc, char *argv[])
 
 			// ---- Calculate the likelihood based on the curret model ---- //
 			double lnL = 0; // Loglike 
-			double model_sum = 0; // Sum of all model values w/o padding
-			double data_sum = 0; // Sum of all data values w/o padding
-			#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL, model_sum, data_sum)
+			// double model_sum = 0; // Sum of all model values w/o padding
+			// double data_sum = 0; // Sum of all data values w/o padding
+			#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL)//, model_sum, data_sum)
 			for (i=BLOCK/2; i<((BLOCK/2)+DATA_WIDTH); i++){
 				for (j=BLOCK/2; j<((BLOCK/2)+DATA_WIDTH); j++){
 					int idx = i*PADDED_DATA_WIDTH+j;
@@ -1308,8 +1308,8 @@ int main(int argc, char *argv[])
 					float f = log(tmp);
 					float g = f * DATA[idx];
 					lnL += g - tmp;
-					model_sum += tmp;
-					data_sum += DATA[idx];
+					// model_sum += tmp;
+					// data_sum += DATA[idx];
 				}// end of column loop
 			} // End of row loop
 
@@ -1475,8 +1475,8 @@ int main(int argc, char *argv[])
 			#if COMPUTE_LOGLIKE
 				printf("Time for computing loglike (us): %.3f\n", dt_loglike * 1e06);
 				printf("Current lnL: %.3f\n", lnL);
-				printf("Current Model sum: %.3f\n", model_sum);
-				printf("Current Data sum: %.3f\n", data_sum);
+				// printf("Current Model sum: %.3f\n", model_sum);
+				// printf("Current Data sum: %.3f\n", data_sum);
 			#endif
 			printf("\n");				
 		#endif	
