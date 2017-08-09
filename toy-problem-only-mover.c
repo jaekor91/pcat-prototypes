@@ -24,7 +24,7 @@
 #define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
 #define NUM_THREADS 1 // Number of threads used for execution.
-#define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
+#define PERIODIC_MODEL_RECOMPUTE 1// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
@@ -87,7 +87,7 @@
 #define TRUE_ALPHA 2.00
 #define TRUE_BACK 179.0
 #define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
-#define FLUX_UPPER_LIMIT 5000.0 // If the proposed flux values become greater than this, then set it to this value.
+#define FLUX_UPPER_LIMIT 10000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
 #define FLUX_DIFF_RATE 12.0
@@ -239,9 +239,9 @@ int main(int argc, char *argv[])
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i*AVX_CACHE;
 			#if ONE_STAR_DEBUG
-				OBJS[idx+BIT_X] = BLOCK-1; // x
-				OBJS[idx+BIT_Y] = BLOCK+1; // y
-				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 2.0;
+				OBJS[idx+BIT_X] = BLOCK; // x
+				OBJS[idx+BIT_Y] = BLOCK+0.75; // y
+				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5.0;
 			#else
 				OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 				OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
@@ -412,9 +412,9 @@ int main(int argc, char *argv[])
 			for (i=0; i<MAX_STARS; i++){
 				int idx = i*AVX_CACHE;
 				#if ONE_STAR_DEBUG
-					OBJS_TRUE[idx+BIT_X] = BLOCK; // x
-					OBJS_TRUE[idx+BIT_Y] = BLOCK; // y
-					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 2.0; // Constant flux values for all the stars. Still an option.
+					OBJS_TRUE[idx+BIT_X] = BLOCK-2.; // x
+					OBJS_TRUE[idx+BIT_Y] = BLOCK-2.; // y
+					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 10.0; // Constant flux values for all the stars. Still an option.
 				#else
 					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
@@ -576,6 +576,7 @@ int main(int argc, char *argv[])
 		#endif
 
 		// Poisson generation of the model
+
 
 		// Saving the data
 		FILE *fp_DATA = NULL;
@@ -1335,7 +1336,7 @@ int main(int argc, char *argv[])
 		// After a certain number of iterations, periodically recompute the MODEL
 		// Re-cycle model initialization variables
 		#if PERIODIC_MODEL_RECOMPUTE
-			if ((j % MODEL_RECOMPUTE_PERIOD) == 0){
+			if (((s*NLOOP+j) % MODEL_RECOMPUTE_PERIOD) == 0){
 				for (i=0; i<MAX_STARS; i++){
 					int idx = i * AVX_CACHE;
 					float x = OBJS[idx + BIT_X];
@@ -1476,8 +1477,8 @@ int main(int argc, char *argv[])
 				printf("Current lnL: %.3f\n", lnL);
 				printf("Current Model sum: %.3f\n", model_sum);
 				printf("Current Data sum: %.3f\n", data_sum);
-				printf("\n");
 			#endif
+			printf("\n");				
 		#endif	
 
 	} // End of sampling looop
