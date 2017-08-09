@@ -41,7 +41,7 @@
 	#define NSAMPLE 2 // Numboer samples to collect
 #else // If in normal mode
 	#define NLOOP 1// Number of times to loop before sampling
-	#define NSAMPLE 1000// Numboer samples to collect
+	#define NSAMPLE 100000// Numboer samples to collect
 #endif 
 #define PRINT_PERF 0// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
@@ -83,6 +83,7 @@
 #define BIT_Y 1
 #define BIT_FLUX 2
 
+#define GAIN 4.62 // ADU to photoelectron gain factor.
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
 #define TRUE_BACK 179.0
@@ -413,8 +414,8 @@ int main(int argc, char *argv[])
 			for (i=0; i<MAX_STARS; i++){
 				int idx = i*AVX_CACHE;
 				#if ONE_STAR_DEBUG
-					OBJS_TRUE[idx+BIT_X] = BLOCK-2.; // x
-					OBJS_TRUE[idx+BIT_Y] = BLOCK-2.; // y
+					OBJS_TRUE[idx+BIT_X] = BLOCK-0.5; // x
+					OBJS_TRUE[idx+BIT_Y] = BLOCK-0.5; // y
 					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 10.0; // Constant flux values for all the stars. Still an option.
 				#else
 					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
@@ -1022,7 +1023,7 @@ int main(int argc, char *argv[])
 							proposed_dX_T[MAXCOUNT_BLOCK * 8+ k] = dpx * dpy * dpy * pf; 
 							// dy*dy*dy
 							current_dX_T[MAXCOUNT_BLOCK * 9 + k] = dcy * dcy * dcy * cf;
-							proposed_dX_T[MAXCOUNT_BLOCK * 9+ k] = dcy * dcy * dcy * pf; 
+							proposed_dX_T[MAXCOUNT_BLOCK * 9+ k] = dpy * dpy * dpy * pf; 
 						} // end of dX computation 
 						#if SERIAL_DEBUG
 							printf("Computed dX.\n");
@@ -1208,7 +1209,7 @@ int main(int argc, char *argv[])
 						#if RANDOM_WALK
 							if (0) // Short circuit so that the proposed changes are always accpeted.
 						#else
-							double dlnL = p_loglike	- b_loglike;
+							double dlnL = (p_loglike - b_loglike) * GAIN;
 							float u = (rand_r(&p_seed) / (float) RAND_MAX); // A random uniform number.
 							// printf("%.3f\n", u);
 							if (log(u) > ( dlnL + factor))
