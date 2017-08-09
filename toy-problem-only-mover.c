@@ -24,11 +24,12 @@
 #define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
 #define NUM_THREADS 1 // Number of threads used for execution.
-#define PERIODIC_MODEL_RECOMPUTE 1// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
+#define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
+#define OFFSET 0 // If 1, blocks are offset by a random amount in each iteration.
 #if DEBUG
 	// General strategy 
 	// Debug first in serial mode, commenting out OMP directives as appropriate.
@@ -38,11 +39,11 @@
 	// Multiple threads, multiple blocks, multiple iterations.
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
-#else
-	#define NLOOP 100000// Number of times to loop before sampling
-	#define NSAMPLE 100// Numboer samples to collect
+#else // If in normal mode
+	#define NLOOP 1// Number of times to loop before sampling
+	#define NSAMPLE 100000// Numboer samples to collect
 #endif 
-#define PRINT_PERF 1// If 1, print peformance after every sample.
+#define PRINT_PERF 0// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
@@ -73,7 +74,9 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS 1 // 	(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 1 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define ONE_STAR_DEBUG 1 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
+
 
 // Bit number of objects within 
 #define BIT_X 0
@@ -235,15 +238,21 @@ int main(int argc, char *argv[])
 		#pragma omp for
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i*AVX_CACHE;
-			OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
-			OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
-			float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
-			#if SET_UPPER_FLUX_LIMIT
-				OBJS[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
+			#if ONE_STAR_DEBUG
+				OBJS[idx+BIT_X] = BLOCK-1; // x
+				OBJS[idx+BIT_Y] = BLOCK+1; // y
+				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 2.0;
 			#else
-				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+				OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
+				OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
+				float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
+				#if SET_UPPER_FLUX_LIMIT
+					OBJS[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
+				#else
+					OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+				#endif
+	            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
 			#endif
-            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
 		}
 	}
 	// Initialize hashing variable	
@@ -402,15 +411,20 @@ int main(int argc, char *argv[])
 			#pragma omp for
 			for (i=0; i<MAX_STARS; i++){
 				int idx = i*AVX_CACHE;
-				OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
-				OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
-				float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
-				#if SET_UPPER_FLUX_LIMIT
-					OBJS_TRUE[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
+				#if ONE_STAR_DEBUG
+					OBJS_TRUE[idx+BIT_X] = BLOCK; // x
+					OBJS_TRUE[idx+BIT_Y] = BLOCK; // y
+					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 2.0; // Constant flux values for all the stars. Still an option.
 				#else
-					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
+					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
+					float u = rand_r(&p_seed)/(RAND_MAX + 1.0);					
+					#if SET_UPPER_FLUX_LIMIT
+						OBJS_TRUE[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
+					#else
+						OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+					#endif					
 				#endif
-	            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
 			}
 		}
 		// Saving mock x, y, f of underlying objects into files. 
@@ -668,11 +682,14 @@ int main(int argc, char *argv[])
 			// Note that image is padded with BLOCK/2 on every side.
 			// The mesh size is the same as the image size. It's shifted in each iteration.
 			// Positive offset corresponds to adding offset_X, offset_Y for getting the 
-			// relevant DATA and MODEL elements but subtracting when computing the block id.		
-			// int offset_X = -2; 
-			// int offset_Y = 0; 
-			int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
-			int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+			// relevant DATA and MODEL elements but subtracting when computing the block id.
+			#if OFFSET
+				int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+				int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+			#else
+				int offset_X = 0; 
+				int offset_Y = 0; 
+			#endif 
 			#if DEBUG
 				printf("Offset X, Y: %d, %d\n\n", offset_X, offset_Y);
 			#endif
@@ -1188,7 +1205,8 @@ int main(int argc, char *argv[])
 						#else
 							double dlnL = p_loglike	- b_loglike;
 							float u = (rand_r(&p_seed) / (float) RAND_MAX); // A random uniform number.
-							if (log(u) > dlnL + factor)
+							// printf("%.3f\n", u);
+							if (log(u) > ( dlnL + factor))
 						#endif
 						{
 							// If the proposed model is rejected. Do nothing.
@@ -1443,7 +1461,7 @@ int main(int argc, char *argv[])
 		#endif // End of model recompute			
 
 		#if SAVE_MODEL // Saving the MODEL after update
-			if (s < 100) { fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL); }
+			if (s == (NSAMPLE-1)) { fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL); }
 			// conditional as a safe measure to memory overflow
 		#endif			
 
