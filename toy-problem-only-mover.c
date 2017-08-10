@@ -23,13 +23,13 @@
 
 #define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
-#define NUM_THREADS 1 // Number of threads used for execution.
+#define NUM_THREADS 4 // Number of threads used for execution.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
-#define OFFSET 0 // If 1, blocks are offset by a random amount in each iteration.
+#define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
 #if DEBUG
 	// General strategy 
 	// Debug first in serial mode, commenting out OMP directives as appropriate.
@@ -43,7 +43,7 @@
 	#define NLOOP 100// Number of times to loop before sampling
 	#define NSAMPLE 10000// Numboer samples to collect
 #endif 
-#define PRINT_PERF 0// If 1, print peformance after every sample.
+#define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
@@ -56,11 +56,11 @@
 #define INNER 10
 #define NPIX 25 // PSF single dimension
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
-#define MARGIN1 0 // Margin width of the block
+#define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 8// Core proposal region 
+#define REGION 4// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 1
+#define NUM_BLOCKS_PER_DIM 2
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -74,8 +74,8 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS 1 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define ONE_STAR_DEBUG 1 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
+#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
 
 // Bit number of objects within 
@@ -245,15 +245,15 @@ int main(int argc, char *argv[])
 				OBJS[idx+BIT_Y] = BLOCK+0.1; // y
 				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5.;
 			#else
-				OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
-				OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
+				OBJS[idx+BIT_X] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // x
+				OBJS[idx+BIT_Y] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // y
 				float u = rand_r(&p_seed)/(RAND_MAX + 1.0);
 				#if SET_UPPER_FLUX_LIMIT
 					OBJS[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
 				#else
-					OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+					// OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
 				#endif
-	            // OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1.1; // Constant flux values for all the stars. Still an option.
+	            OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 2; // Constant flux values for all the stars. Still an option.
 			#endif
 		}
 	}
@@ -418,8 +418,8 @@ int main(int argc, char *argv[])
 					OBJS_TRUE[idx+BIT_Y] = BLOCK-1.5; // y
 					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 10000.0; // Constant flux values for all the stars. Still an option.
 				#else
-					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
-					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
+					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // x
+					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // y
 					float u = rand_r(&p_seed)/(RAND_MAX + 1.0);					
 					#if SET_UPPER_FLUX_LIMIT
 						OBJS_TRUE[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
