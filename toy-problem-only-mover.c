@@ -56,9 +56,9 @@
 #define INNER 10
 #define NPIX 25 // PSF single dimension
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
-#define MARGIN1 2 // Margin width of the block
+#define MARGIN1 0 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 6// Core proposal region 
+#define REGION 8// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_PER_DIM 1
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
@@ -83,7 +83,7 @@
 #define BIT_Y 1
 #define BIT_FLUX 2
 
-#define GAIN 4.62 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
+#define GAIN 1.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
 #define TRUE_BACK 179.0
@@ -91,7 +91,7 @@
 #define FLUX_UPPER_LIMIT 10000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
-#define FLUX_DIFF_RATE 100.0
+#define FLUX_DIFF_RATE 10.0
 
 // Some MACRO functions
  #define max(a,b) \
@@ -212,8 +212,8 @@ int main(int argc, char *argv[])
 
 	// Read in the psf design matrix A
 	FILE *fpA = NULL;
-	fpA = fopen("A_sdss.bin", "rb");
-	// fpA = fopen("A_gauss.bin", "rb");	
+	// fpA = fopen("A_sdss.bin", "rb");
+	fpA = fopen("A_gauss.bin", "rb");	
 	fread(&A, sizeof(float), size_of_A, fpA);
 	// print_float_vec(A, size_of_A); // Debug
 	// printf("A[312]: %.3f\n", A[312]); // Should be 0.2971158 (based on Gaussian psf) // Debug
@@ -241,9 +241,9 @@ int main(int argc, char *argv[])
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i*AVX_CACHE;
 			#if ONE_STAR_DEBUG
-				OBJS[idx+BIT_X] = BLOCK; // x
-				OBJS[idx+BIT_Y] = BLOCK; // y
-				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 100.;
+				OBJS[idx+BIT_X] = BLOCK+0.1; // x
+				OBJS[idx+BIT_Y] = BLOCK+0.1; // y
+				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5.;
 			#else
 				OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 				OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
@@ -415,8 +415,8 @@ int main(int argc, char *argv[])
 				int idx = i*AVX_CACHE;
 				#if ONE_STAR_DEBUG
 					OBJS_TRUE[idx+BIT_X] = BLOCK-0.5; // x
-					OBJS_TRUE[idx+BIT_Y] = BLOCK-1.48; // y
-					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1000.0; // Constant flux values for all the stars. Still an option.
+					OBJS_TRUE[idx+BIT_Y] = BLOCK-1.5; // y
+					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 10000.0; // Constant flux values for all the stars. Still an option.
 				#else
 					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
