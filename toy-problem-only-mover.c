@@ -24,7 +24,7 @@
 #define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
 #define NUM_THREADS 1 // Number of threads used for execution.
-#define PERIODIC_MODEL_RECOMPUTE 1// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
+#define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
@@ -40,8 +40,8 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else // If in normal mode
-	#define NLOOP 1// Number of times to loop before sampling
-	#define NSAMPLE 100000// Numboer samples to collect
+	#define NLOOP 100// Number of times to loop before sampling
+	#define NSAMPLE 10000// Numboer samples to collect
 #endif 
 #define PRINT_PERF 0// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
@@ -83,7 +83,7 @@
 #define BIT_Y 1
 #define BIT_FLUX 2
 
-#define GAIN 4.62 // ADU to photoelectron gain factor.
+#define GAIN 4.62 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
 #define TRUE_BACK 179.0
@@ -91,7 +91,7 @@
 #define FLUX_UPPER_LIMIT 10000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
-#define FLUX_DIFF_RATE 12.0
+#define FLUX_DIFF_RATE 100.0
 
 // Some MACRO functions
  #define max(a,b) \
@@ -242,8 +242,8 @@ int main(int argc, char *argv[])
 			int idx = i*AVX_CACHE;
 			#if ONE_STAR_DEBUG
 				OBJS[idx+BIT_X] = BLOCK; // x
-				OBJS[idx+BIT_Y] = BLOCK+0.75; // y
-				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5.0;
+				OBJS[idx+BIT_Y] = BLOCK; // y
+				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 100.;
 			#else
 				OBJS[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 				OBJS[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
@@ -415,8 +415,8 @@ int main(int argc, char *argv[])
 				int idx = i*AVX_CACHE;
 				#if ONE_STAR_DEBUG
 					OBJS_TRUE[idx+BIT_X] = BLOCK-0.5; // x
-					OBJS_TRUE[idx+BIT_Y] = BLOCK-0.5; // y
-					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 10.0; // Constant flux values for all the stars. Still an option.
+					OBJS_TRUE[idx+BIT_Y] = BLOCK-1.48; // y
+					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 1000.0; // Constant flux values for all the stars. Still an option.
 				#else
 					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // x
 					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) % DATA_WIDTH) + (BLOCK/2); // y
@@ -620,6 +620,7 @@ int main(int argc, char *argv[])
 			}// end of column loop
 		} // End of row loop
 
+		lnL0 *= GAIN;// Multiple by the gain factor
 		dt_loglike0 += omp_get_wtime();
 		printf("\n");
 		printf("Time for computing initial loglike (us): %.3f\n", dt_loglike0 * 1e06);
@@ -1317,7 +1318,7 @@ int main(int argc, char *argv[])
 					// data_sum += DATA[idx];
 				}// end of column loop
 			} // End of row loop
-
+			lnL *= GAIN; // Multiply by the gain factor
 			dt_loglike += omp_get_wtime();
 		#endif
 
