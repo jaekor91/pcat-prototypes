@@ -23,13 +23,13 @@
 
 #define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
-#define NUM_THREADS 4 // Number of threads used for execution.
-#define PERIODIC_MODEL_RECOMPUTE 1// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
+#define NUM_THREADS 1 // Number of threads used for execution.
+#define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
-#define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
+#define OFFSET 0 // If 1, blocks are offset by a random amount in each iteration.
 #if DEBUG
 	// General strategy 
 	// Debug first in serial mode, commenting out OMP directives as appropriate.
@@ -40,10 +40,10 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else // If in normal mode
-	#define NLOOP 1000// Number of times to loop before sampling
-	#define NSAMPLE 300// Numboer samples to collect
+	#define NLOOP 100// Number of times to loop before sampling
+	#define NSAMPLE 10000// Numboer samples to collect
 #endif 
-#define PRINT_PERF 1// If 1, print peformance after every sample.
+#define PRINT_PERF 0// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
@@ -58,9 +58,9 @@
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 24// Core proposal region 
+#define REGION 4// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 2
+#define NUM_BLOCKS_PER_DIM 1
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -74,9 +74,9 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.016 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define NUM_TRUE_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define MAX_STARS ((int) ((NUM_TRUE_STARS) * 1.2)) // The number of stars to use to model the image.
-#define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
+#define NUM_TRUE_STARS 1 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS 1 // ((int) ((NUM_TRUE_STARS) * 1.2)) // The number of stars to use to model the image.
+#define ONE_STAR_DEBUG 1 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
 
 // Bit number of objects within 
@@ -87,12 +87,12 @@
 #define GAIN 5.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
-#define TRUE_BACK 179.0
+#define TRUE_BACK 100.0
 #define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
 #define FLUX_UPPER_LIMIT 10000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
-#define FLUX_DIFF_RATE 10.0
+#define FLUX_DIFF_RATE 100.0
 
 // Some MACRO functions
  #define max(a,b) \
@@ -196,6 +196,18 @@ int rand_poisson(double lambda){
 
 int main(int argc, char *argv[])
 {	
+
+	// Files for saving (NSAMPLE, MAX_STARS) of x, y, f each or (NSAMPLE) of loglike. 
+    FILE *fpx = NULL;
+    FILE *fpy = NULL;
+    FILE *fpf = NULL;
+    FILE *fplnL = NULL;
+
+    fpx = fopen("chain_x.bin", "wb");
+    fpy = fopen("chain_y.bin", "wb");
+    fpf = fopen("chain_f.bin", "wb");
+    fplnL = fopen("chain_lnL.bin", "wb");
+
 	// Print basic parameters of the problem.
 	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
 	printf("Number of sample to collect: %d\n", NSAMPLE);
@@ -272,9 +284,9 @@ int main(int argc, char *argv[])
 		for (i=0; i<MAX_STARS; i++){
 			int idx = i*AVX_CACHE;
 			#if ONE_STAR_DEBUG
-				OBJS[idx+BIT_X] = BLOCK+0.1; // x
-				OBJS[idx+BIT_Y] = BLOCK+0.1; // y
-				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5.;
+				OBJS[idx+BIT_X] = BLOCK; // x
+				OBJS[idx+BIT_Y] = BLOCK; // y
+				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 500.;
 			#else
 				OBJS[idx+BIT_X] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // x
 				OBJS[idx+BIT_Y] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // y
@@ -445,9 +457,9 @@ int main(int argc, char *argv[])
 			for (i=0; i<NUM_TRUE_STARS; i++){
 				int idx = i*AVX_CACHE;
 				#if ONE_STAR_DEBUG
-					OBJS_TRUE[idx+BIT_X] = BLOCK-0.5; // x
-					OBJS_TRUE[idx+BIT_Y] = BLOCK-1.5; // y
-					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 10000.0; // Constant flux values for all the stars. Still an option.
+					OBJS_TRUE[idx+BIT_X] = BLOCK; // x
+					OBJS_TRUE[idx+BIT_Y] = BLOCK; // y
+					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5000.0; // Constant flux values for all the stars. Still an option.
 				#else
 					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // x
 					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // y
@@ -662,21 +674,11 @@ int main(int argc, char *argv[])
 		printf("Time for computing initial loglike (us): %.3f\n", dt_loglike0 * 1e06);
 		printf("Initial lnL: %.3f\n", lnL0);
 		// printf("Initial MODEL sum: %.3f\n", model_sum0);
-		// printf("Initial DATA sum: %.3f\n", data_sum0);
+		// printf("Initial DATA sum: %.3f\n", data_sum0);		
 		printf("\n");		
+		// Save the loglike as default.
+		fwrite(&lnL0, sizeof(double), 1, fplnL);		
 	#endif
-
-
-	// Files for saving (NSAMPLE, MAX_STARS) of x, y, f each or (NSAMPLE) of loglike. 
-    FILE *fpx = NULL;
-    FILE *fpy = NULL;
-    FILE *fpf = NULL;
-    FILE *fplnL = NULL;
-
-    fpx = fopen("chain_x.bin", "wb");
-    fpy = fopen("chain_y.bin", "wb");
-    fpf = fopen("chain_f.bin", "wb");
-    fplnL = fopen("chain_lnL.bin", "wb");
 
     // Save the initial draws for the model
 	#if SAVE_CHAIN
@@ -690,9 +692,6 @@ int main(int argc, char *argv[])
 			fwrite(&y, sizeof(float), 1, fpy);
 			fwrite(&f, sizeof(float), 1, fpf);				
 		}
-		#if COMPUTE_LOGLIKE
-			fwrite(&lnL0, sizeof(double), 1, fplnL);
-		#endif
 		dt_savechain0 += omp_get_wtime();
 	#endif
 
@@ -1356,6 +1355,8 @@ int main(int argc, char *argv[])
 			} // End of row loop
 			lnL *= GAIN; // Multiply by the gain factor
 			dt_loglike += omp_get_wtime();
+			// Save chain as default
+			fwrite(&lnL, sizeof(double), 1, fplnL);		
 		#endif
 
 		#if SAVE_CHAIN
@@ -1369,9 +1370,6 @@ int main(int argc, char *argv[])
 				fwrite(&y, sizeof(float), 1, fpy);
 				fwrite(&f, sizeof(float), 1, fpf);				
 			}
-			#if COMPUTE_LOGLIKE
-				fwrite(&lnL, sizeof(double), 1, fplnL);
-			#endif
 			dt_savechain += omp_get_wtime();
 		#endif
 
