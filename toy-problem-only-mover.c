@@ -24,8 +24,8 @@
 #define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
 #define NUM_THREADS 4 // Number of threads used for execution.
-#define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
-#define MODEL_RECOMPUTE_PERIOD 1 // Recompute the model after 1000 iterations.
+#define PERIODIC_MODEL_RECOMPUTE 1// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
+#define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
@@ -40,8 +40,8 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else // If in normal mode
-	#define NLOOP 100// Number of times to loop before sampling
-	#define NSAMPLE 10000// Numboer samples to collect
+	#define NLOOP 1000// Number of times to loop before sampling
+	#define NSAMPLE 300// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
@@ -58,7 +58,7 @@
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 4// Core proposal region 
+#define REGION 24// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_PER_DIM 2
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
@@ -73,9 +73,9 @@
 #define DATA_SIZE (DATA_WIDTH * DATA_WIDTH)
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
+#define STAR_DENSITY_PER_BLOCK ((int) (0.016 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define NUM_TRUE_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define MAX_STARS ((int) (NUM_TRUE_STARS * 0.8)) // The number of stars to use to model the image.
+#define MAX_STARS ((int) ((NUM_TRUE_STARS) * 1.2)) // The number of stars to use to model the image.
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
 
@@ -84,7 +84,7 @@
 #define BIT_Y 1
 #define BIT_FLUX 2
 
-#define GAIN 1.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
+#define GAIN 5.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
 #define TRUE_BACK 179.0
@@ -164,6 +164,35 @@ void print_float_vec(float* mat, int size){
 }
 
 
+int rand_poisson(double lambda){
+	// Given the mean value lambda
+	// generate random poisson value
+	// This may not be optimal
+	// but convenient to use
+	double c = 0.767 - 3.36/lambda;
+	double beta = M_PI/sqrt(3.0*lambda);
+	double alpha = beta*lambda;
+	double k = log(c) - lambda - log(beta);
+
+	while (1)
+	{
+		double u = rand() / (double) RAND_MAX;
+		double x = (alpha - log((1.0 - u)/u))/beta;
+		int n = floor(x + 0.5);
+		if (n < 0){
+			continue;
+		}
+		double v = rand() / (double) RAND_MAX;
+		double y = alpha - beta*x;
+		double f = (1.0 + exp(y));
+		double lhs = y + log(v/(f * f));
+		double rhs = k + n*log(lambda) - lgamma(n+1);
+		if (lhs <= rhs){
+			return n;
+		}
+	}
+}
+
 
 int main(int argc, char *argv[])
 {	
@@ -179,6 +208,7 @@ int main(int argc, char *argv[])
 	printf("Data width: %d\n", DATA_WIDTH);
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_TOTAL);
+	printf("NUM_TRUE_STARS: %d\n", NUM_TRUE_STARS);		
 	printf("MAX_STARS: %d\n", MAX_STARS);	
 	printf("Obj density: %.2f per pixel\n", (float) MAX_STARS/ (float) DATA_SIZE);
 	int stack_size = kmp_get_stacksize_s() / 1e06;
@@ -575,11 +605,16 @@ int main(int argc, char *argv[])
 			}// End of PSF calculation for K-th star
 		}
 		#if SERIAL_DEBUG
-			printf("Finished updating the local copy of the MODEL.\n");
+			printf("Finished generating the underlying flux of the model.\n");
 		#endif
 
 		// Poisson generation of the model
-
+		#pragma omp parallel for collapse(2)
+		for (l=BLOCK/2; l<(BLOCK/2+DATA_WIDTH); l++){
+			for (m=BLOCK/2; m<(BLOCK/2+DATA_WIDTH); m++){
+				DATA[l*PADDED_DATA_WIDTH+m] = rand_poisson((double) (GAIN * DATA[l*PADDED_DATA_WIDTH+m])) / GAIN;
+			}
+		}
 
 		// Saving the data
 		FILE *fp_DATA = NULL;
@@ -1343,6 +1378,8 @@ int main(int argc, char *argv[])
 		// After a certain number of iterations, periodically recompute the MODEL
 		// Re-cycle model initialization variables
 		#if PERIODIC_MODEL_RECOMPUTE
+			double dt_recompute = -omp_get_wtime();
+
 			if (((s*NLOOP+j) % MODEL_RECOMPUTE_PERIOD) == 0){
 				for (i=0; i<MAX_STARS; i++){
 					int idx = i * AVX_CACHE;
@@ -1466,6 +1503,8 @@ int main(int argc, char *argv[])
 					}// End of PSF calculation for K-th star				
 				}//End of model update with stars
 			}// End of model recompute
+
+			dt_recompute += omp_get_wtime();
 		#endif // End of model recompute			
 
 		#if SAVE_MODEL // Saving the MODEL after update
@@ -1484,6 +1523,9 @@ int main(int argc, char *argv[])
 				printf("Current lnL: %.3f\n", lnL);
 				// printf("Current Model sum: %.3f\n", model_sum);
 				// printf("Current Data sum: %.3f\n", data_sum);
+			#endif
+			#if PERIODIC_MODEL_RECOMPUTE
+				printf("Time for recomputing the whole image (us): %.3f\n", dt_recompute * 1e06);				
 			#endif
 			printf("\n");				
 		#endif	
@@ -1506,6 +1548,7 @@ int main(int argc, char *argv[])
 	printf("Data width: %d\n", DATA_WIDTH);
 	printf("Number of blocks per dim: %d\n", NUM_BLOCKS_PER_DIM);
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_TOTAL);
+	printf("NUM_TRUE_STARS: %d\n", NUM_TRUE_STARS);			
 	printf("MAX_STARS: %d\n", MAX_STARS);	
 	printf("Obj density: %.2f per pixel\n", (float) MAX_STARS/ (float) DATA_SIZE);
 	printf("Stack size being used: %dMB\n", stack_size);	
