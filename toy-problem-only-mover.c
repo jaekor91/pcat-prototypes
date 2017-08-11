@@ -74,7 +74,8 @@
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define MAX_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define NUM_TRUE_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS ((int) (NUM_TRUE_STARS * 0.8)) // The number of stars to use to model the image.
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
 
@@ -397,13 +398,13 @@ int main(int argc, char *argv[])
 
 	// ------ Initialize DATA matrix by either reading in an old data or generating a new mock ----- //
 	#if GENERATE_NEW_MOCK 
-		__attribute__((aligned(64))) float OBJS_TRUE[AVX_CACHE * MAX_STARS];
-		__attribute__((aligned(64))) float mock_x[MAX_STARS];
-		__attribute__((aligned(64))) float mock_y[MAX_STARS];
-		__attribute__((aligned(64))) float mock_f[MAX_STARS];
+		__attribute__((aligned(64))) float OBJS_TRUE[AVX_CACHE * NUM_TRUE_STARS];
+		__attribute__((aligned(64))) float mock_x[NUM_TRUE_STARS];
+		__attribute__((aligned(64))) float mock_y[NUM_TRUE_STARS];
+		__attribute__((aligned(64))) float mock_f[NUM_TRUE_STARS];
 		// Initialize 
 		#pragma omp parallel for simd shared(OBJS_TRUE)
-		for (i=0; i< AVX_CACHE * MAX_STARS; i++){
+		for (i=0; i< AVX_CACHE * NUM_TRUE_STARS; i++){
 			OBJS_TRUE[i] = -1; // 
 		}
 		time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);		
@@ -411,7 +412,7 @@ int main(int argc, char *argv[])
 	    {
 			unsigned int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
 			#pragma omp for
-			for (i=0; i<MAX_STARS; i++){
+			for (i=0; i<NUM_TRUE_STARS; i++){
 				int idx = i*AVX_CACHE;
 				#if ONE_STAR_DEBUG
 					OBJS_TRUE[idx+BIT_X] = BLOCK-0.5; // x
@@ -438,7 +439,7 @@ int main(int argc, char *argv[])
 		fpx_mock = fopen("mock_chain_x.bin", "wb");
 		fpy_mock = fopen("mock_chain_y.bin", "wb");
 		fpf_mock = fopen("mock_chain_f.bin", "wb");	
-		for (i=0; i<MAX_STARS; i++){
+		for (i=0; i<NUM_TRUE_STARS; i++){
 			int idx = i * AVX_CACHE;
 			float x = OBJS_TRUE[idx + BIT_X];
 			float y = OBJS_TRUE[idx + BIT_Y];
@@ -454,19 +455,19 @@ int main(int argc, char *argv[])
 		fclose(fpy_mock);
 		fclose(fpf_mock);
 		// Calculating dX for each star.
-		__attribute__((aligned(64))) int mock_ix[MAX_STARS];
-		__attribute__((aligned(64))) int mock_iy[MAX_STARS];					
+		__attribute__((aligned(64))) int mock_ix[NUM_TRUE_STARS];
+		__attribute__((aligned(64))) int mock_iy[NUM_TRUE_STARS];					
 		#pragma omp parallel for simd
-		for (k=0; k< MAX_STARS; k++){
+		for (k=0; k< NUM_TRUE_STARS; k++){
 			mock_ix[k] = ceil(mock_x[k]); // Padding width is already accounted for.
 			mock_iy[k] = ceil(mock_y[k]);
 		} // end of ix, iy computation
 		
-		// For vectorization, compute dX^T [AVX_CACHE2, MAX_STARS] and transpose to dX [MAXCOUNT, AVX_CACHE2]
-		__attribute__((aligned(64))) float mock_dX_T[AVX_CACHE2 * MAX_STARS];
+		// For vectorization, compute dX^T [AVX_CACHE2, NUM_TRUE_STARS] and transpose to dX [MAXCOUNT, AVX_CACHE2]
+		__attribute__((aligned(64))) float mock_dX_T[AVX_CACHE2 * NUM_TRUE_STARS];
 
 		#pragma omp parallel for simd
-		for (k=0; k < MAX_STARS; k++){
+		for (k=0; k < NUM_TRUE_STARS; k++){
 			// Calculate dx, dy						
 			float px = mock_x[k];
 			float py = mock_y[k];
@@ -479,35 +480,35 @@ int main(int argc, char *argv[])
 			// Compute dX * f
 			mock_dX_T[k] = pf; //
 			// dx
-			mock_dX_T[MAX_STARS + k] = dpx * pf; 
+			mock_dX_T[NUM_TRUE_STARS + k] = dpx * pf; 
 			// dy
-			mock_dX_T[MAX_STARS * 2+ k] = dpy * pf; 
+			mock_dX_T[NUM_TRUE_STARS * 2+ k] = dpy * pf; 
 			// dx*dx
-			mock_dX_T[MAX_STARS * 3+ k] = dpx * dpx * pf; 
+			mock_dX_T[NUM_TRUE_STARS * 3+ k] = dpx * dpx * pf; 
 			// dx*dy
-			mock_dX_T[MAX_STARS * 4+ k] = dpx * dpy * pf; 
+			mock_dX_T[NUM_TRUE_STARS * 4+ k] = dpx * dpy * pf; 
 			// dy*dy
-			mock_dX_T[MAX_STARS * 5+ k] = dpy * dpy * pf; 
+			mock_dX_T[NUM_TRUE_STARS * 5+ k] = dpy * dpy * pf; 
 			// dx*dx*dx
-			mock_dX_T[MAX_STARS * 6+ k] = dpx * dpx * dpx * pf; 
+			mock_dX_T[NUM_TRUE_STARS * 6+ k] = dpx * dpx * dpx * pf; 
 			// dx*dx*dy
-			mock_dX_T[MAX_STARS * 7+ k] = dpx * dpx * dpy * pf; 
+			mock_dX_T[NUM_TRUE_STARS * 7+ k] = dpx * dpx * dpy * pf; 
 			// dx*dy*dy
-			mock_dX_T[MAX_STARS * 8+ k] = dpx * dpy * dpy * pf; 
+			mock_dX_T[NUM_TRUE_STARS * 8+ k] = dpx * dpy * dpy * pf; 
 			// dy*dy*dy
-			mock_dX_T[MAX_STARS * 9+ k] = dpy * dpy * dpy * pf; 
+			mock_dX_T[NUM_TRUE_STARS * 9+ k] = dpy * dpy * dpy * pf; 
 		} // end of dX computation 
 		#if SERIAL_DEBUG
 			printf("Computed dX.\n");
 		#endif
 		
-		// Transposing the matrices: dX^T [AVX_CACHE2, MAX_STARS] to dX [MAXCOUNT, AVX_CACHE2]
+		// Transposing the matrices: dX^T [AVX_CACHE2, NUM_TRUE_STARS] to dX [MAXCOUNT, AVX_CACHE2]
 		// Combine current and proposed arrays. 
-		__attribute__((aligned(64))) float mock_dX[AVX_CACHE2 * MAX_STARS];
+		__attribute__((aligned(64))) float mock_dX[AVX_CACHE2 * NUM_TRUE_STARS];
 		#pragma omp parallel for collapse(2)
-		for (k=0; k<MAX_STARS; k++){
+		for (k=0; k<NUM_TRUE_STARS; k++){
 			for (l=0; l<INNER; l++){
-				mock_dX[k*AVX_CACHE2+l] = mock_dX_T[MAX_STARS*l+k];
+				mock_dX[k*AVX_CACHE2+l] = mock_dX_T[NUM_TRUE_STARS*l+k];
 			}
 		}// end of transpose
 		#if SERIAL_DEBUG
@@ -528,7 +529,7 @@ int main(int argc, char *argv[])
 		#endif
 
 		jstar = 0;
-	    for (istar = 0; istar < MAX_STARS; istar++) // This must be a serial operation.
+	    for (istar = 0; istar < NUM_TRUE_STARS; istar++) // This must be a serial operation.
 	    {
 	        xx = mock_ix[istar];
 	        yy = mock_iy[istar];
