@@ -23,13 +23,15 @@
 
 #define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
-#define NUM_THREADS 1 // Number of threads used for execution.
+#define NUM_THREADS 4 // Number of threads used for execution.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
+#define MODEL_EVAL_STEP 1 // If 0, model eval step is disabled.
+#define COMPUTE_LOGLIKE_LOCAL 1// If 0, a random integer is used for the log likelihood in each block.
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
-#define OFFSET 0 // If 1, blocks are offset by a random amount in each iteration.
+#define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
 #if DEBUG
 	// General strategy 
 	// Debug first in serial mode, commenting out OMP directives as appropriate.
@@ -40,11 +42,11 @@
 	#define NLOOP 1000 // Number of times to loop before sampling
 	#define NSAMPLE 2 // Numboer samples to collect
 #else // If in normal mode
-	#define NLOOP 100// Number of times to loop before sampling
-	#define NSAMPLE 10000// Numboer samples to collect
+	#define NLOOP 1000// Number of times to loop before sampling
+	#define NSAMPLE 20// Numboer samples to collect
 #endif 
-#define PRINT_PERF 0// If 1, print peformance after every sample.
-#define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
+#define PRINT_PERF 1// If 1, print peformance after every sample.
+#define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
 #define SAVE_MODEL 1 // If 1, save the model corresponding to each sample as well as the initial.
@@ -60,7 +62,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 4// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 1
+#define NUM_BLOCKS_PER_DIM 8
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -73,10 +75,10 @@
 #define DATA_SIZE (DATA_WIDTH * DATA_WIDTH)
 #define IMAGE_SIZE (PADDED_DATA_WIDTH * PADDED_DATA_WIDTH)
 
-#define STAR_DENSITY_PER_BLOCK ((int) (0.016 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
-#define NUM_TRUE_STARS 1 //(STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define MAX_STARS 1 // ((int) ((NUM_TRUE_STARS) * 1.2)) // The number of stars to use to model the image.
-#define ONE_STAR_DEBUG 1 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
+#define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
+#define NUM_TRUE_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define MAX_STARS ((int) ((NUM_TRUE_STARS))) // The number of stars to use to model the image.
+#define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
 
 // Bit number of objects within 
@@ -87,9 +89,9 @@
 #define GAIN 5.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
-#define TRUE_BACK 100.0
-#define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
-#define FLUX_UPPER_LIMIT 10000.0 // If the proposed flux values become greater than this, then set it to this value.
+#define TRUE_BACK 1000.0
+#define SET_UPPER_FLUX_LIMIT 1 // If 1, the above limit is applied.
+#define FLUX_UPPER_LIMIT 1000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
 #define FLUX_DIFF_RATE 100.0
@@ -624,7 +626,9 @@ int main(int argc, char *argv[])
 		#pragma omp parallel for collapse(2)
 		for (l=BLOCK/2; l<(BLOCK/2+DATA_WIDTH); l++){
 			for (m=BLOCK/2; m<(BLOCK/2+DATA_WIDTH); m++){
+				// printf("%d, %d: %.3f\n", l, m, DATA[l*PADDED_DATA_WIDTH+m]);
 				DATA[l*PADDED_DATA_WIDTH+m] = rand_poisson((double) (GAIN * DATA[l*PADDED_DATA_WIDTH+m])) / GAIN;
+				// printf("Completed: %.3f\n", DATA[l*PADDED_DATA_WIDTH+m]);
 			}
 		}
 
@@ -842,6 +846,7 @@ int main(int argc, char *argv[])
 						printf("Number of objects in this block: %d\n", p_nobjs);
 					#endif
 
+				#if MODEL_EVAL_STEP
 					if (p_nobjs > 0) // Proceed with the rest only if there are objects in the region.
 					{
 						// ----- Transfer objects (x, y, f) to cache ------ //
@@ -1147,7 +1152,9 @@ int main(int argc, char *argv[])
 						// 		printf("%4d, %4d\n", idx_row, idx_col);
 						// 		printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
 						// 	}
-						// #endif	
+						// #endif
+
+					#if COMPUTE_LOGLIKE_LOCAL
 						#pragma omp simd collapse(2) reduction(+:b_loglike)
 						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 							for (m = m_min; m < m_max; m++){
@@ -1158,7 +1165,8 @@ int main(int argc, char *argv[])
 								float g = f * data[idx];
 								b_loglike += g - tmp;
 							}
-						}					
+						}
+					#endif // End of computing local loglikelihood before update 
 
 						#if SERIAL_DEBUG
 							printf("Finished computing current loglike.\n");
@@ -1223,6 +1231,7 @@ int main(int argc, char *argv[])
 						#endif
 
 						// // ----- Compute the new likelihood ----- //
+					#if COMPUTE_LOGLIKE_LOCAL
 						#pragma omp simd collapse(2) reduction(+:p_loglike)
 						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
 							for (m = m_min; m < m_max; m++){
@@ -1233,7 +1242,8 @@ int main(int argc, char *argv[])
 								float g = f * data[idx];
 								p_loglike += g - tmp;
 							}
-						}					
+						}
+					#endif	
 						#if SERIAL_DEBUG
 							printf("Computed the new loglike.\n");
 						#endif
@@ -1312,6 +1322,9 @@ int main(int argc, char *argv[])
 							printf("There were no objects so skip.\n");
 						#endif
 					}
+
+				#endif // End of model eval step
+
 				#if SERIAL_DEBUG
 					printf("End of Block %d computation.\n\n", block_ID);
 				#endif
