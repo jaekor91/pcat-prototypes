@@ -32,7 +32,7 @@
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
 #define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
-#define POSITIVE_PSF 0// If 1, whenever computed PSF is negative, clip it at 0.
+#define POSITIVE_PSF 1// If 1, whenever computed PSF is negative, clip it at 0.
 #if DEBUG
 	// General strategy 
 	// Debug first in serial mode, commenting out OMP directives as appropriate.
@@ -453,8 +453,9 @@ int main(int argc, char *argv[])
 			// Add the PSF
 			#pragma omp simd
 			for (l=0; l<NPIX2; l++){
-				float tmp = max(positive_psf_helper[l], 0);
-				MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += tmp;
+				float a = positive_psf_helper[l];
+				float b = MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)];
+				MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
 			}// End of PSF calculation for K-th star
 
 		#else
@@ -657,8 +658,9 @@ int main(int argc, char *argv[])
 				// Add the PSF
 				#pragma omp simd
 				for (l=0; l<NPIX2; l++){
-					float tmp = max(positive_psf_helper[l], 0);
-					DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += tmp;
+					float a = positive_psf_helper[l];
+					float b = DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)];
+					DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
 			}// End of PSF calculation for K-th star
 
 			#else
@@ -1300,7 +1302,9 @@ int main(int argc, char *argv[])
 								// Add the PSF
 								#pragma omp simd
 								for (l=0; l<NPIX2; l++){
-									model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] += max(positive_psf_helper[l], 0);
+									float a = positive_psf_helper[l];
+									float b = model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)];
+									model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
 								}// End of PSF calculation for K-th star
 							#else
 								#pragma omp simd collapse(2)
