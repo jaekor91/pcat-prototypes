@@ -25,7 +25,7 @@
 // Number of threads, ieration, and debug
 #define NUM_THREADS 4 // Number of threads used for execution.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
-#define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
+#define MODEL_RECOMPUTE_PERIOD 100000 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define MODEL_EVAL_STEP 1 // If 0, model eval step is disabled.
 #define COMPUTE_LOGLIKE_LOCAL 1// If 0, a random integer is used for the log likelihood in each block.
@@ -43,10 +43,10 @@
 	#define NSAMPLE 2 // Numboer samples to collect
 #else // If in normal mode
 	#define NLOOP 1000// Number of times to loop before sampling
-	#define NSAMPLE 20// Numboer samples to collect
+	#define NSAMPLE 400// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
-#define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
+#define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
 #define SAVE_MODEL 1 // If 1, save the model corresponding to each sample as well as the initial.
@@ -62,7 +62,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 4// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 8
+#define NUM_BLOCKS_PER_DIM 4
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -89,12 +89,12 @@
 #define GAIN 5.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
-#define TRUE_BACK 1000.0
-#define SET_UPPER_FLUX_LIMIT 1 // If 1, the above limit is applied.
+#define TRUE_BACK 179.0
+#define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
 #define FLUX_UPPER_LIMIT 1000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
-#define FLUX_DIFF_RATE 100.0
+#define FLUX_DIFF_RATE 50.0
 
 // Some MACRO functions
  #define max(a,b) \
@@ -850,7 +850,7 @@ int main(int argc, char *argv[])
 					if (p_nobjs > 0) // Proceed with the rest only if there are objects in the region.
 					{
 						// ----- Transfer objects (x, y, f) to cache ------ //
-						#pragma omp simd collapse(2)						
+						#pragma omp simd collapse(2) 					
 						for (k=0; k<p_nobjs; k++){
 							for (l=0; l<AVX_CACHE; l++){
 								p_objs[AVX_CACHE*k+l] = OBJS[p_objs_idx[k]*AVX_CACHE+l];
@@ -1132,8 +1132,9 @@ int main(int argc, char *argv[])
 						#endif
 				
 						// // ----- Compute the original likelihood based on the current model. ----- //
-						double b_loglike = 0;// Original block likelihood
-						double p_loglike = 0; // Proposed move's loglikehood
+						float b_loglike = 0;// Original block likelihood
+						float p_loglike = 0; // Proposed move's loglikehood
+						float loglike_simd_helper[AVX_CACHE2]; // Loglike simd helper array
 
 						// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
 						int l_min = 0;
@@ -1155,16 +1156,26 @@ int main(int argc, char *argv[])
 						// #endif
 
 					#if COMPUTE_LOGLIKE_LOCAL
-						#pragma omp simd collapse(2) reduction(+:b_loglike)
-						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
+						// Initialize the helper array
+						for (l=0; l<AVX_CACHE2; l++){
+							loglike_simd_helper[l] = 0;
+						}
+
+						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.
+							#pragma omp simd
 							for (m = m_min; m < m_max; m++){
 								int idx = l*BLOCK+m;
 								// Poisson likelihood
 								float tmp = model_proposed[idx];
 								float f = log(tmp);
 								float g = f * data[idx];
-								b_loglike += g - tmp;
+								loglike_simd_helper[m%AVX_CACHE2] += g - tmp;
 							}
+						}						
+
+						// Sum the loglike variable
+						for (l=0; l<AVX_CACHE2; l++){
+							b_loglike += loglike_simd_helper[l];
 						}
 					#endif // End of computing local loglikelihood before update 
 
@@ -1232,16 +1243,26 @@ int main(int argc, char *argv[])
 
 						// // ----- Compute the new likelihood ----- //
 					#if COMPUTE_LOGLIKE_LOCAL
-						#pragma omp simd collapse(2) reduction(+:p_loglike)
-						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.															
+						// Initialize the helper array
+						for (l=0; l<AVX_CACHE2; l++){
+							loglike_simd_helper[l] = 0;
+						}
+
+						for (l = l_min; l < l_max; l++){ 
+							#pragma omp simd							
 							for (m = m_min; m < m_max; m++){
 								int idx = l*BLOCK+m;
 								// Poisson likelihood
 								float tmp = model_proposed[idx];
 								float f = log(tmp);
 								float g = f * data[idx];
-								p_loglike += g - tmp;
+								loglike_simd_helper[m%AVX_CACHE2] += g - tmp;
 							}
+						}						
+
+						// Sum the loglike variable
+						for (l=0; l<AVX_CACHE2; l++){
+							p_loglike += loglike_simd_helper[l];
 						}
 					#endif	
 						#if SERIAL_DEBUG
