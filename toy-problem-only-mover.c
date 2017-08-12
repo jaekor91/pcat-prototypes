@@ -32,6 +32,7 @@
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
 #define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
+#define POSITIVE_PSF 0// If 1, whenever computed PSF is negative, clip it at 0.
 #if DEBUG
 	// General strategy 
 	// Debug first in serial mode, commenting out OMP directives as appropriate.
@@ -77,7 +78,7 @@
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define NUM_TRUE_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define MAX_STARS ((int) ((NUM_TRUE_STARS))) // The number of stars to use to model the image.
+#define MAX_STARS ((int) ((NUM_TRUE_STARS) * 1.2)) // The number of stars to use to model the image.
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
 
@@ -171,6 +172,12 @@ int rand_poisson(double lambda){
 	// generate random poisson value
 	// This may not be optimal
 	// but convenient to use
+	if (lambda<0){
+		// Exit the program
+		printf("Negative value encountered in mock data.\n");
+		exit(0);
+	}
+
 	double c = 0.767 - 3.36/lambda;
 	double beta = M_PI/sqrt(3.0*lambda);
 	double alpha = beta*lambda;
@@ -428,13 +435,36 @@ int main(int argc, char *argv[])
 		#if SERIAL_DEBUG
 			printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
 		#endif
-		#pragma omp simd collapse(2)
-		for (l=0; l<NPIX2; l++){
-			for (m=0; m<INNER; m++){
-				// AVX_CACHE_VERSION
-				MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += init_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-			} 
-		}// End of PSF calculation for K-th star
+
+		#if POSITIVE_PSF
+			// If clipping any negative vals of PSF is demanded, then compute the whole PSF first and then add.
+			float positive_psf_helper[NPIX2];
+			#pragma omp simd
+			for (l=0; l<NPIX2; l++){
+				positive_psf_helper[l] = 0;
+			}
+			// Compute the PSF
+			#pragma omp simd collapse(2)
+			for (l=0; l<NPIX2; l++){
+				for (m=0; m<INNER; m++){
+					positive_psf_helper[l] += init_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+				}
+			}
+			// Add the PSF
+			#pragma omp simd
+			for (l=0; l<NPIX2; l++){
+				float tmp = max(positive_psf_helper[l], 0);
+				MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += tmp;
+			}// End of PSF calculation for K-th star
+
+		#else
+			#pragma omp simd collapse(2)
+			for (l=0; l<NPIX2; l++){
+				for (m=0; m<INNER; m++){
+					MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += init_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+				}
+			}// End of PSF calculation for K-th star
+		#endif
 	}
 	// ----- End of initialization of the MODEL ------ //	
 
@@ -610,13 +640,35 @@ int main(int argc, char *argv[])
 			#if SERIAL_DEBUG
 				printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
 			#endif
-			#pragma omp simd collapse(2)
-			for (l=0; l<NPIX2; l++){
-				for (m=0; m<INNER; m++){
-					// AVX_CACHE_VERSION
-					DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-				} 
+			#if POSITIVE_PSF
+				// If clipping any negative vals of PSF is demanded, then compute the whole PSF first and then add.
+				float positive_psf_helper[NPIX2];
+				#pragma omp simd
+				for (l=0; l<NPIX2; l++){
+					positive_psf_helper[l] = 0;
+				}
+				// Compute the PSF
+				for (l=0; l<NPIX2; l++){
+					#pragma omp simd
+					for (m=0; m<INNER; m++){
+						positive_psf_helper[l] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+					}
+				}
+				// Add the PSF
+				#pragma omp simd
+				for (l=0; l<NPIX2; l++){
+					float tmp = max(positive_psf_helper[l], 0);
+					DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += tmp;
 			}// End of PSF calculation for K-th star
+
+			#else
+				#pragma omp simd collapse(2)
+				for (l=0; l<NPIX2; l++){
+					for (m=0; m<INNER; m++){
+						DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+					}
+				}// End of PSF calculation for K-th star					
+			#endif				
 		}
 		#if SERIAL_DEBUG
 			printf("Finished generating the underlying flux of the model.\n");
@@ -1229,13 +1281,36 @@ int main(int argc, char *argv[])
 							#if SERIAL_DEBUG
 								printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
 							#endif
-							#pragma omp simd collapse(2)
-							for (l=0; l<NPIX2; l++){
-								for (m=0; m<INNER; m++){
-									// AVX_CACHE_VERSION
-									model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-								} 
-							}// End of PSF calculation for K-th star
+							
+							#if POSITIVE_PSF
+								// If clipping any negative vals of PSF is demanded, then compute the whole PSF first and then add.
+								float positive_psf_helper[NPIX2];
+								#pragma omp simd
+								for (l=0; l<NPIX2; l++){
+									positive_psf_helper[l] = 0;
+								}
+								// Compute the PSF
+								for (l=0; l<NPIX2; l++){
+									#pragma omp simd
+									for (m=0; m<INNER; m++){
+										positive_psf_helper[l] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+									}
+								}
+
+								// Add the PSF
+								#pragma omp simd
+								for (l=0; l<NPIX2; l++){
+									model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] += max(positive_psf_helper[l], 0);
+								}// End of PSF calculation for K-th star
+							#else
+								#pragma omp simd collapse(2)
+								for (l=0; l<NPIX2; l++){
+									for (m=0; m<INNER; m++){
+										model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+									}
+								}// End of PSF calculation for K-th star
+							#endif				 
+
 						}
 						#if SERIAL_DEBUG
 							printf("Finished updating the local copy of the MODEL.\n");
