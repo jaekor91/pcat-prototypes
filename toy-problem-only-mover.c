@@ -21,9 +21,9 @@
 #include <sys/mman.h>
 
 
-#define GENERATE_NEW_MOCK 1 // If true, generate new mock. If false, then read in already generated image.
+#define GENERATE_NEW_MOCK 0 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
-#define NUM_THREADS 4 // Number of threads used for execution.
+#define NUM_THREADS 256 // Number of threads used for execution.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 100000 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
@@ -32,7 +32,7 @@
 #define DEBUG 0// Set to 1 when debugging.
 #define BLOCK_ID_DEBUG 2
 #define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
-#define POSITIVE_PSF 1// If 1, whenever computed PSF is negative, clip it at 0.
+#define POSITIVE_PSF 1	// If 1, whenever computed PSF is negative, clip it at 0.
 #if DEBUG
 	// General strategy 
 	// Debug first in serial mode, commenting out OMP directives as appropriate.
@@ -50,6 +50,7 @@
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
+#define SAVE_ONLY_LAST 1 // If 1, only save the last sample
 #define SAVE_MODEL 1 // If 1, save the model corresponding to each sample as well as the initial.
 
 // Define global dimensions
@@ -63,7 +64,7 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 4// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 4
+#define NUM_BLOCKS_PER_DIM 32
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
 #define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
@@ -78,7 +79,7 @@
 
 #define STAR_DENSITY_PER_BLOCK ((int) (0.1 * BLOCK * BLOCK))  // 102.4 x (36/1024) ~ 4
 #define NUM_TRUE_STARS (STAR_DENSITY_PER_BLOCK * NUM_BLOCKS_TOTAL) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
-#define MAX_STARS ((int) ((NUM_TRUE_STARS) * 1.2)) // The number of stars to use to model the image.
+#define MAX_STARS ((int) ((NUM_TRUE_STARS))) // The number of stars to use to model the image.
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
 
@@ -95,7 +96,7 @@
 #define FLUX_UPPER_LIMIT 1000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
-#define FLUX_DIFF_RATE 50.0
+#define FLUX_DIFF_RATE 100.0
 
 // Some MACRO functions
  #define max(a,b) \
@@ -1474,6 +1475,9 @@ int main(int argc, char *argv[])
 
 		#if SAVE_CHAIN
 			double dt_savechain = -omp_get_wtime();
+			#if SAVE_ONLY_LAST
+				if (s==NSAMPLE-1){
+			#endif 
 			for (i=0; i<MAX_STARS; i++){
 				int idx = i * AVX_CACHE;
 				float x = OBJS[idx + BIT_X];
@@ -1483,6 +1487,9 @@ int main(int argc, char *argv[])
 				fwrite(&y, sizeof(float), 1, fpy);
 				fwrite(&f, sizeof(float), 1, fpf);				
 			}
+			#if SAVE_ONLY_LAST
+				}
+			#endif 
 			dt_savechain += omp_get_wtime();
 		#endif
 
