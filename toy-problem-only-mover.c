@@ -1,3 +1,4 @@
+
 // Toy PCAT problem where the number of objects (and types of objects are fixed).
 // Note: If MARGIN1 size is too small, then seg fault error will occur during run time
 // as there is not enough space in local block copy of MODEL.
@@ -23,9 +24,9 @@
 
 #define GENERATE_NEW_MOCK 0 // If true, generate new mock. If false, then read in already generated image.
 // Number of threads, ieration, and debug
-#define NUM_THREADS 256 // Number of threads used for execution.
+#define NUM_THREADS 4 // Number of threads used for execution.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
-#define MODEL_RECOMPUTE_PERIOD 100000 // Recompute the model after 1000 iterations.
+#define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define SERIAL_DEBUG 0 // Only to be used when NUM_THREADS 0
 #define MODEL_EVAL_STEP 1 // If 0, model eval step is disabled.
 #define COMPUTE_LOGLIKE_LOCAL 1// If 0, a random integer is used for the log likelihood in each block.
@@ -44,7 +45,7 @@
 	#define NSAMPLE 2 // Numboer samples to collect
 #else // If in normal mode
 	#define NLOOP 1000// Number of times to loop before sampling
-	#define NSAMPLE 400// Numboer samples to collect
+	#define NSAMPLE 1000// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
@@ -52,6 +53,14 @@
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
 #define SAVE_ONLY_LAST 1 // If 1, only save the last sample
 #define SAVE_MODEL 1 // If 1, save the model corresponding to each sample as well as the initial.
+#define SAVE_ACCEPTANCE_RATE 1 // If 1, save the acceptance rate.
+
+// BIT information within the ACCEPT_RATE array
+// Note that if a proposal is skipped none of this is updated.
+#define BIT_ACCEPT 0 // Incremented by one if the proposal is accepted.
+#define BIT_REJECT 1 // Incremented by one if the proposal is rejected.
+#define BIT_NOBJS_ACCEPT 2 // Incremented by the number of objects within the proposal region if the proposal is accepted.
+#define BIT_NOBJS_REJECT 3// Incremented by the number of objects within the proposal region if the proposal is rejected.
 
 // Define global dimensions
 #define AVX_CACHE2 16
@@ -64,10 +73,10 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 4// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_PER_DIM 32
+#define NUM_BLOCKS_PER_DIM 2
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
-#define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
+#define MAXCOUNT_BLOCK 48 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
 							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
 #define INCREMENT 1 // Block loop increment
@@ -82,8 +91,7 @@
 #define MAX_STARS ((int) ((NUM_TRUE_STARS))) // The number of stars to use to model the image.
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
-
-// Bit number of objects within 
+// Bit number of objects within AVX_CACHE2 allocated 
 #define BIT_X 0
 #define BIT_Y 1
 #define BIT_FLUX 2
@@ -96,7 +104,7 @@
 #define FLUX_UPPER_LIMIT 1000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
-#define FLUX_DIFF_RATE 100.0
+#define FLUX_DIFF_RATE 4.0
 
 // Some MACRO functions
  #define max(a,b) \
@@ -218,6 +226,11 @@ int main(int argc, char *argv[])
     fpf = fopen("chain_f.bin", "wb");
     fplnL = fopen("chain_lnL.bin", "wb");
 
+	#if SAVE_ACCEPTANCE_RATE
+	    FILE *fpACCEPT_RATE = NULL;    
+	    fpACCEPT_RATE = fopen("acceptance_rate.bin", "wb");
+	#endif    
+
 	// Print basic parameters of the problem.
 	printf("WARNING: Please be warned that the number of blocks must be greater than the number of threads.\n\n\n");
 	printf("Number of sample to collect: %d\n", NSAMPLE);
@@ -252,6 +265,16 @@ int main(int argc, char *argv[])
 
 
 	// ----- Declare global, shared variables ----- //
+	// This matrix is used to keep track of acceptance rate 
+	int size_of_ACCEPT_RATE = NUM_BLOCKS_TOTAL * AVX_CACHE2;
+	__attribute__((aligned(64))) int ACCEPT_RATE[size_of_ACCEPT_RATE];
+
+	// Initialize the array
+	#pragma omp parallel for simd
+	for (i=0; i<size_of_ACCEPT_RATE; i++){
+		ACCEPT_RATE[i] = -1;
+	}
+	
 	// Image DATA, MODEL, design matrix
 	int size_of_A = NPIX2 * INNER;
 	__attribute__((aligned(64))) float DATA[IMAGE_SIZE]; // Generate positive test data. 64 bytes aligned.
@@ -770,6 +793,16 @@ int main(int argc, char *argv[])
 	dt_total = -omp_get_wtime();
 	printf("\nSampling starts here.\n");
 	for (s=0; s<NSAMPLE; s++){
+
+		// (Re) - initialize the acceptance rate array
+		#pragma omp parallel for
+		for (i=0; i<NUM_BLOCKS_TOTAL; i++){
+			ACCEPT_RATE[i*AVX_CACHE2+BIT_ACCEPT] = 0;
+			ACCEPT_RATE[i*AVX_CACHE2+BIT_REJECT] = 0;			
+			ACCEPT_RATE[i*AVX_CACHE2+BIT_NOBJS_ACCEPT] = 0;
+			ACCEPT_RATE[i*AVX_CACHE2+BIT_NOBJS_REJECT] = 0;	
+		} 
+
 		start = omp_get_wtime(); // Timing starts here 		
 		for (j=0; j<NLOOP; j++){
 			#if SERIAL_DEBUG 
@@ -866,7 +899,7 @@ int main(int argc, char *argv[])
 			// IMPORTANT: X is the row direction and Y is the column direction.
 			time_seed = (int) (time(NULL)) * rand();	
 			int ibx, iby; // Block idx	
-			#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A) \
+			#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A, ACCEPT_RATE) \
 				private(ibx, iby, k, l, m, jstar, istar, xx, yy)
 			for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction				
 				for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction
@@ -1350,6 +1383,8 @@ int main(int argc, char *argv[])
 						#endif
 						
 
+						// Restore the number of objects being perturbed.
+						p_nobjs = p_nobjs/2;
 					
 						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
 						// If bigger then undo the addition by subtracting what was added to the model image.
@@ -1362,7 +1397,8 @@ int main(int argc, char *argv[])
 							if (log(u) > ( dlnL + factor))
 						#endif
 						{
-							// If the proposed model is rejected. Do nothing.
+							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_REJECT] += 1;							
+							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_NOBJS_REJECT] += p_nobjs;
 						}
 						else{
 							// Accept the proposal
@@ -1375,8 +1411,10 @@ int main(int argc, char *argv[])
 								}
 							}
 
+							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_ACCEPT] += 1;							
+							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_NOBJS_ACCEPT] += p_nobjs;
+
 							// Update each obj according to the perturbation
-							p_nobjs = p_nobjs/2; // Only proposal objects gets 
 							#if DEBUG
 								if (block_ID == BLOCK_ID_DEBUG){
 									printf("\n\n**** Accepted changes ****\n");
@@ -1628,6 +1666,13 @@ int main(int argc, char *argv[])
 		#if SAVE_MODEL // Saving the MODEL after update
 			if (s == (NSAMPLE-1)) { fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL); }
 			// conditional as a safe measure to memory overflow
+		#endif
+
+		#if SAVE_ACCEPTANCE_RATE
+			// Save the acceptance rate. Possibly large matrix
+			double dt_save_accept = -omp_get_wtime();
+			fwrite(&ACCEPT_RATE, sizeof(int), size_of_ACCEPT_RATE, fpACCEPT_RATE);
+			dt_save_accept += omp_get_wtime();
 		#endif			
 
 		#if PRINT_PERF
@@ -1645,6 +1690,27 @@ int main(int argc, char *argv[])
 			#if PERIODIC_MODEL_RECOMPUTE
 				printf("Time for recomputing the whole image (us): %.3f\n", dt_recompute * 1e06);				
 			#endif
+			#if SAVE_ACCEPTANCE_RATE
+				printf("Time for saving acceptance rate (us): %.3f\n", dt_save_accept * 1e06);
+			#endif
+
+			int num_accept = 0; // Counter for the total number of accept
+			int num_reject = 0;
+			int num_objs_accept = 0; // Counter for the total number of objects when proposal is accepted
+			int num_objs_reject = 0; // " is rejected
+			for (i=0; i<NUM_BLOCKS_TOTAL; i++){
+				int idx = i*AVX_CACHE2;
+				num_accept += ACCEPT_RATE[idx+BIT_ACCEPT];				
+				num_reject += ACCEPT_RATE[idx+BIT_REJECT];								
+				num_objs_accept += ACCEPT_RATE[idx+BIT_NOBJS_ACCEPT];
+				num_objs_reject += ACCEPT_RATE[idx+BIT_NOBJS_REJECT];
+			}
+			float num_serial_iter = (float) (num_accept + num_reject); // Not the same as NLOOP * NUM_BLOCKS_TOTAL
+			printf("Global acceptance rate: %.2f pcnt\n", 100.*num_accept/num_serial_iter);
+			printf("Avg. num objs in proposal: %.2f\n", (num_objs_accept+num_objs_reject)/ num_serial_iter);
+			printf("Avg. num objs when accepted: %.2f\n", num_objs_accept/ (float) num_accept);			
+			printf("Avg. num objs when rejected: %.2f\n", num_objs_reject/((float) num_reject));						
+			printf("Fraction of serial iterations with objects %.2f", 100.*num_serial_iter/((float) (NLOOP*NUM_BLOCKS_TOTAL)));
 			printf("\n");				
 		#endif	
 
@@ -1672,6 +1738,14 @@ int main(int argc, char *argv[])
 	printf("Stack size being used: %dMB\n", stack_size);	
 	printf("Number of processors available: %d\n", omp_get_num_procs());
 	printf("Number of thread used: %d\n", NUM_THREADS);	
+
+	
+
+	
+
+	#if SAVE_ACCEPTANCE_RATE
+		fclose(fpACCEPT_RATE);
+	#endif
 
 	printf("\nExit program.\n");	
 	// Close files.
