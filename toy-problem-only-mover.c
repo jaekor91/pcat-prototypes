@@ -45,7 +45,7 @@
 	#define NSAMPLE 2 // Numboer samples to collect
 #else // If in normal mode
 	#define NLOOP 1000// Number of times to loop before sampling
-	#define NSAMPLE 1000// Numboer samples to collect
+	#define NSAMPLE 400// Numboer samples to collect
 #endif 
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
@@ -71,12 +71,12 @@
 #define NPIX2 (NPIX*NPIX) // 25 x 25 = 625
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 4// Core proposal region 
+#define REGION 12// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_PER_DIM 2
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_PER_DIM * NUM_BLOCKS_PER_DIM)
 
-#define MAXCOUNT_BLOCK 48 // Maximum number of objects expected to be found in a proposal region. 
+#define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
 							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
 #define INCREMENT 1 // Block loop increment
@@ -104,7 +104,7 @@
 #define FLUX_UPPER_LIMIT 1000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
 #define FREEZE_F 0 // If 1, free the flux
-#define FLUX_DIFF_RATE 4.0
+#define FLUX_DIFF_RATE 10.0
 
 // Some MACRO functions
  #define max(a,b) \
@@ -1710,7 +1710,7 @@ int main(int argc, char *argv[])
 			printf("Avg. num objs in proposal: %.2f\n", (num_objs_accept+num_objs_reject)/ num_serial_iter);
 			printf("Avg. num objs when accepted: %.2f\n", num_objs_accept/ (float) num_accept);			
 			printf("Avg. num objs when rejected: %.2f\n", num_objs_reject/((float) num_reject));						
-			printf("Fraction of serial iterations with objects %.2f", 100.*num_serial_iter/((float) (NLOOP*NUM_BLOCKS_TOTAL)));
+			printf("Fraction of serial iterations with objects: %.2f pcnt\n", 100.*num_serial_iter/((float) (NLOOP*NUM_BLOCKS_TOTAL)));
 			printf("\n");				
 		#endif	
 
