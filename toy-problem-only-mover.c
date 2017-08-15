@@ -46,8 +46,9 @@
 #define NUM_ROWS 64
 #define NUM_COLS NUM_ROWS
 #define IMAGE_SIZE (NUM_ROWS * NUM_COLS)
-#define PADDED_NUM_COLS (NUM_COLS+2*AVX_CACHE2)
-#define PADDED_NUM_ROWS (NUM_ROWS+2*AVX_CACHE2)
+#define PAD AVX_CACHE2
+#define PADDED_NUM_COLS (NUM_COLS+2*PAD)
+#define PADDED_NUM_ROWS (NUM_ROWS+2*PAD)
 #define PADDED_IMAGE_SIZE (PADDED_NUM_ROWS * PADDED_NUM_COLS)
 
 // ---- Block mesh dimension specification ----- //
@@ -64,7 +65,7 @@
 #define MESH_SIZE (NUM_BLOCKS_TOTAL * BLOCK * BLOCK)
 
 // ---- Mock generation ----- //
-#define GENERATE_NEW_MOCK 0 // If 1, generate mock data based on the global parameters 
+#define GENERATE_NEW_MOCK 1 // If 1, generate mock data based on the global parameters 
 							// below and using the image dimensions above. 
 							// If 0, then use the user provided data.
 
@@ -77,7 +78,7 @@
 #define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
 #define FLUX_UPPER_LIMIT 1000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define STAR_DENSITY_PER_PIXEL (0.1 )  // 102.4 x (36/1024) ~ 4
-#define NUM_TRUE_STARS (STAR_DENSITY_PER_PIXEL * IMAGE_SIZE) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
+#define NUM_TRUE_STARS ((int) (STAR_DENSITY_PER_PIXEL * IMAGE_SIZE)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define MAX_STARS ((int) ((NUM_TRUE_STARS))) // The number of stars to use to model the image.
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
@@ -97,7 +98,7 @@
 #define FREEZE_F 0 // If 1, free the flux
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 4 // Number of threads used for execution.
+#define NUM_THREADS 1 // Number of threads used for execution.
 #define POSITIVE_PSF 1	// If 1, whenever computed PSF is negative, clip it at 0.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
@@ -357,8 +358,8 @@ int main(int argc, char *argv[])
 				OBJS[idx+BIT_Y] = BLOCK/2; // y
 				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 500.;
 			#else
-				OBJS[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_ROWS+AVX_CACHE2-1; // x
-				OBJS[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_COLS+AVX_CACHE2-1; // y
+				OBJS[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_ROWS+PAD-1; // x
+				OBJS[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_COLS+PAD-1; // y
 				float u = rand_r(&p_seed)/((float) RAND_MAX + 1.0);
 				#if SET_UPPER_FLUX_LIMIT
 					OBJS[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
@@ -468,7 +469,7 @@ int main(int argc, char *argv[])
     {
         xx = init_ix[istar];
         yy = init_iy[istar];
-        printf("%d: %d, %d\n", istar, xx, yy);
+        // printf("%d: %d, %d\n", istar, xx, yy);
         int idx = xx*PADDED_NUM_COLS+yy;
         if (init_hash[idx] != -1) {
         	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
@@ -532,232 +533,232 @@ int main(int argc, char *argv[])
 
 
 
-	// // ------ Initialize DATA matrix by either reading in an old data or generating a new mock ----- //
-	// #if GENERATE_NEW_MOCK 
-	// 	__attribute__((aligned(64))) float OBJS_TRUE[AVX_CACHE * NUM_TRUE_STARS];
-	// 	__attribute__((aligned(64))) float mock_x[NUM_TRUE_STARS];
-	// 	__attribute__((aligned(64))) float mock_y[NUM_TRUE_STARS];
-	// 	__attribute__((aligned(64))) float mock_f[NUM_TRUE_STARS];
-	// 	// Initialize 
-	// 	#pragma omp parallel for simd shared(OBJS_TRUE)
-	// 	for (i=0; i< AVX_CACHE * NUM_TRUE_STARS; i++){
-	// 		OBJS_TRUE[i] = -1; // 
-	// 	}
-	// 	time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);		
-	//     #pragma omp parallel shared(OBJS_TRUE)
-	//     {
-	// 		unsigned int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
-	// 		#pragma omp for
-	// 		for (i=0; i<NUM_TRUE_STARS; i++){
-	// 			int idx = i*AVX_CACHE;
-	// 			#if ONE_STAR_DEBUG
-	// 				OBJS_TRUE[idx+BIT_X] = BLOCK; // x
-	// 				OBJS_TRUE[idx+BIT_Y] = BLOCK; // y
-	// 				OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5000.0; // Constant flux values for all the stars. Still an option.
-	// 			#else
-	// 				OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // x
-	// 				OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) / (float) RAND_MAX) * DATA_WIDTH + (BLOCK/2); // y
-	// 				float u = rand_r(&p_seed)/(RAND_MAX + 1.0);					
-	// 				#if SET_UPPER_FLUX_LIMIT
-	// 					OBJS_TRUE[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
-	// 				#else
-	// 					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
-	// 				#endif					
-	// 			#endif
-	// 		}
-	// 	}
-	// 	// Saving mock x, y, f of underlying objects into files. 
-	// 	// Note that htis part cannot be parallelized.
-	// 	// Also, coalescing x, y, f into 1D array each.
-	// 	FILE *fpx_mock = NULL;
-	// 	FILE *fpy_mock = NULL;
-	// 	FILE *fpf_mock = NULL;
-	// 	fpx_mock = fopen("mock_chain_x.bin", "wb");
-	// 	fpy_mock = fopen("mock_chain_y.bin", "wb");
-	// 	fpf_mock = fopen("mock_chain_f.bin", "wb");	
-	// 	for (i=0; i<NUM_TRUE_STARS; i++){
-	// 		int idx = i * AVX_CACHE;
-	// 		float x = OBJS_TRUE[idx + BIT_X];
-	// 		float y = OBJS_TRUE[idx + BIT_Y];
-	// 		float f = OBJS_TRUE[idx + BIT_FLUX];
-	// 		fwrite(&x, sizeof(float), 1, fpx_mock);
-	// 		fwrite(&y, sizeof(float), 1, fpy_mock);
-	// 		fwrite(&f, sizeof(float), 1, fpf_mock);
-	// 		mock_x[i] = x;
-	// 		mock_y[i] = y;
-	// 		mock_f[i] = f;
-	// 	}
-	// 	fclose(fpx_mock);
-	// 	fclose(fpy_mock);
-	// 	fclose(fpf_mock);
-	// 	// Calculating dX for each star.
-	// 	__attribute__((aligned(64))) int mock_ix[NUM_TRUE_STARS];
-	// 	__attribute__((aligned(64))) int mock_iy[NUM_TRUE_STARS];					
-	// 	#pragma omp parallel for simd
-	// 	for (k=0; k< NUM_TRUE_STARS; k++){
-	// 		mock_ix[k] = ceil(mock_x[k]); // Padding width is already accounted for.
-	// 		mock_iy[k] = ceil(mock_y[k]);
-	// 	} // end of ix, iy computation
+	// ------ Initialize DATA matrix by either reading in an old data or generating a new mock ----- //
+	#if GENERATE_NEW_MOCK 
+		__attribute__((aligned(64))) float OBJS_TRUE[AVX_CACHE * NUM_TRUE_STARS];
+		__attribute__((aligned(64))) float mock_x[NUM_TRUE_STARS];
+		__attribute__((aligned(64))) float mock_y[NUM_TRUE_STARS];
+		__attribute__((aligned(64))) float mock_f[NUM_TRUE_STARS];
+		// Initialize 
+		#pragma omp parallel for simd shared(OBJS_TRUE)
+		for (i=0; i< AVX_CACHE * NUM_TRUE_STARS; i++){
+			OBJS_TRUE[i] = -1; // 
+		}
+		time_seed = (int) (time(NULL)) * rand(); // printf("Time seed %d\n", time_seed);		
+	    #pragma omp parallel shared(OBJS_TRUE)
+	    {
+			unsigned int p_seed = time_seed * (1+omp_get_thread_num()); // Note that this seeding is necessary
+			#pragma omp for
+			for (i=0; i<NUM_TRUE_STARS; i++){
+				int idx = i*AVX_CACHE;
+				#if ONE_STAR_DEBUG
+					OBJS_TRUE[idx+BIT_X] = BLOCK/2; // x
+					OBJS_TRUE[idx+BIT_Y] = BLOCK/2; // y
+					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5000.0; // Constant flux values for all the stars. Still an option.
+				#else
+					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * NUM_COLS + PAD - 1; // x
+					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * NUM_ROWS + PAD - 1; // y
+					float u = rand_r(&p_seed)/((float) RAND_MAX + 1.0);					
+					#if SET_UPPER_FLUX_LIMIT
+						OBJS_TRUE[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
+					#else
+						OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0)); // flux.
+					#endif					
+				#endif
+			}
+		}
+		// Saving mock x, y, f of underlying objects into files. 
+		// Note that htis part cannot be parallelized.
+		// Also, coalescing x, y, f into 1D array each.
+		FILE *fpx_mock = NULL;
+		FILE *fpy_mock = NULL;
+		FILE *fpf_mock = NULL;
+		fpx_mock = fopen("mock_chain_x.bin", "wb");
+		fpy_mock = fopen("mock_chain_y.bin", "wb");
+		fpf_mock = fopen("mock_chain_f.bin", "wb");	
+		for (i=0; i<NUM_TRUE_STARS; i++){
+			int idx = i * AVX_CACHE;
+			float x = OBJS_TRUE[idx + BIT_X];
+			float y = OBJS_TRUE[idx + BIT_Y];
+			float f = OBJS_TRUE[idx + BIT_FLUX];
+			fwrite(&x, sizeof(float), 1, fpx_mock);
+			fwrite(&y, sizeof(float), 1, fpy_mock);
+			fwrite(&f, sizeof(float), 1, fpf_mock);
+			mock_x[i] = x;
+			mock_y[i] = y;
+			mock_f[i] = f;
+		}
+		fclose(fpx_mock);
+		fclose(fpy_mock);
+		fclose(fpf_mock);
+		// Calculating dX for each star.
+		__attribute__((aligned(64))) int mock_ix[NUM_TRUE_STARS];
+		__attribute__((aligned(64))) int mock_iy[NUM_TRUE_STARS];					
+		#pragma omp parallel for simd
+		for (k=0; k< NUM_TRUE_STARS; k++){
+			mock_ix[k] = ceil(mock_x[k]); // Padding width is already accounted for.
+			mock_iy[k] = ceil(mock_y[k]);
+		} // end of ix, iy computation
 		
-	// 	// For vectorization, compute dX^T [AVX_CACHE2, NUM_TRUE_STARS] and transpose to dX [MAXCOUNT, AVX_CACHE2]
-	// 	__attribute__((aligned(64))) float mock_dX_T[AVX_CACHE2 * NUM_TRUE_STARS];
+		// For vectorization, compute dX^T [AVX_CACHE2, NUM_TRUE_STARS] and transpose to dX [MAXCOUNT, AVX_CACHE2]
+		__attribute__((aligned(64))) float mock_dX_T[AVX_CACHE2 * NUM_TRUE_STARS];
 
-	// 	#pragma omp parallel for simd
-	// 	for (k=0; k < NUM_TRUE_STARS; k++){
-	// 		// Calculate dx, dy						
-	// 		float px = mock_x[k];
-	// 		float py = mock_y[k];
-	// 		float dpx = mock_ix[k]-px;
-	// 		float dpy = mock_iy[k]-py;
+		#pragma omp parallel for simd
+		for (k=0; k < NUM_TRUE_STARS; k++){
+			// Calculate dx, dy						
+			float px = mock_x[k];
+			float py = mock_y[k];
+			float dpx = mock_ix[k]-px;
+			float dpy = mock_iy[k]-py;
 
-	// 		// flux values
-	// 		float pf = mock_f[k];
+			// flux values
+			float pf = mock_f[k];
 
-	// 		// Compute dX * f
-	// 		mock_dX_T[k] = pf; //
-	// 		// dx
-	// 		mock_dX_T[NUM_TRUE_STARS + k] = dpx * pf; 
-	// 		// dy
-	// 		mock_dX_T[NUM_TRUE_STARS * 2+ k] = dpy * pf; 
-	// 		// dx*dx
-	// 		mock_dX_T[NUM_TRUE_STARS * 3+ k] = dpx * dpx * pf; 
-	// 		// dx*dy
-	// 		mock_dX_T[NUM_TRUE_STARS * 4+ k] = dpx * dpy * pf; 
-	// 		// dy*dy
-	// 		mock_dX_T[NUM_TRUE_STARS * 5+ k] = dpy * dpy * pf; 
-	// 		// dx*dx*dx
-	// 		mock_dX_T[NUM_TRUE_STARS * 6+ k] = dpx * dpx * dpx * pf; 
-	// 		// dx*dx*dy
-	// 		mock_dX_T[NUM_TRUE_STARS * 7+ k] = dpx * dpx * dpy * pf; 
-	// 		// dx*dy*dy
-	// 		mock_dX_T[NUM_TRUE_STARS * 8+ k] = dpx * dpy * dpy * pf; 
-	// 		// dy*dy*dy
-	// 		mock_dX_T[NUM_TRUE_STARS * 9+ k] = dpy * dpy * dpy * pf; 
-	// 	} // end of dX computation 
-	// 	#if SERIAL_DEBUG
-	// 		printf("Computed dX.\n");
-	// 	#endif
+			// Compute dX * f
+			mock_dX_T[k] = pf; //
+			// dx
+			mock_dX_T[NUM_TRUE_STARS + k] = dpx * pf; 
+			// dy
+			mock_dX_T[NUM_TRUE_STARS * 2+ k] = dpy * pf; 
+			// dx*dx
+			mock_dX_T[NUM_TRUE_STARS * 3+ k] = dpx * dpx * pf; 
+			// dx*dy
+			mock_dX_T[NUM_TRUE_STARS * 4+ k] = dpx * dpy * pf; 
+			// dy*dy
+			mock_dX_T[NUM_TRUE_STARS * 5+ k] = dpy * dpy * pf; 
+			// dx*dx*dx
+			mock_dX_T[NUM_TRUE_STARS * 6+ k] = dpx * dpx * dpx * pf; 
+			// dx*dx*dy
+			mock_dX_T[NUM_TRUE_STARS * 7+ k] = dpx * dpx * dpy * pf; 
+			// dx*dy*dy
+			mock_dX_T[NUM_TRUE_STARS * 8+ k] = dpx * dpy * dpy * pf; 
+			// dy*dy*dy
+			mock_dX_T[NUM_TRUE_STARS * 9+ k] = dpy * dpy * dpy * pf; 
+		} // end of dX computation 
+		#if SERIAL_DEBUG
+			printf("Computed dX.\n");
+		#endif
 		
-	// 	// Transposing the matrices: dX^T [AVX_CACHE2, NUM_TRUE_STARS] to dX [MAXCOUNT, AVX_CACHE2]
-	// 	// Combine current and proposed arrays. 
-	// 	__attribute__((aligned(64))) float mock_dX[AVX_CACHE2 * NUM_TRUE_STARS];
-	// 	#pragma omp parallel for collapse(2)
-	// 	for (k=0; k<NUM_TRUE_STARS; k++){
-	// 		for (l=0; l<INNER; l++){
-	// 			mock_dX[k*AVX_CACHE2+l] = mock_dX_T[NUM_TRUE_STARS*l+k];
-	// 		}
-	// 	}// end of transpose
-	// 	#if SERIAL_DEBUG
-	// 		printf("Finished transposing dX.\n");
-	// 	#endif
+		// Transposing the matrices: dX^T [AVX_CACHE2, NUM_TRUE_STARS] to dX [MAXCOUNT, AVX_CACHE2]
+		// Combine current and proposed arrays. 
+		__attribute__((aligned(64))) float mock_dX[AVX_CACHE2 * NUM_TRUE_STARS];
+		#pragma omp parallel for collapse(2)
+		for (k=0; k<NUM_TRUE_STARS; k++){
+			for (l=0; l<INNER; l++){
+				mock_dX[k*AVX_CACHE2+l] = mock_dX_T[NUM_TRUE_STARS*l+k];
+			}
+		}// end of transpose
+		#if SERIAL_DEBUG
+			printf("Finished transposing dX.\n");
+		#endif
 
 
-	// 	// ----- Hashing ----- //
-	// 	// This steps reduces number of PSFs that need to be evaluated.					
-	// 	__attribute__((aligned(64))) int mock_hash[IMAGE_SIZE];
-	// 	// Note: Objs may fall out of the inner proposal region. However
-	// 	// it shouldn't go too much out of it. So as long as MARGIN1 is 
-	// 	// 1 or 2, there should be no problem. 
-	// 	#pragma omp parallel for simd // Explicit vectorization
-	//     for (k=0; k<IMAGE_SIZE; k++) { mock_hash[k] = -1; }
- //    	#if SERIAL_DEBUG
-	// 		printf("Mock: Initialized hashing variable.\n");
-	// 	#endif
+		// ----- Hashing ----- //
+		// This steps reduces number of PSFs that need to be evaluated.					
+		__attribute__((aligned(64))) int mock_hash[PADDED_IMAGE_SIZE];
+		// Note: Objs may fall out of the inner proposal region. However
+		// it shouldn't go too much out of it. So as long as MARGIN1 is 
+		// 1 or 2, there should be no problem. 
+		#pragma omp parallel for simd // Explicit vectorization
+	    for (k=0; k<PADDED_IMAGE_SIZE; k++) { mock_hash[k] = -1; }
+    	#if SERIAL_DEBUG
+			printf("Mock: Initialized hashing variable.\n");
+		#endif
 
-	// 	jstar = 0;
-	//     for (istar = 0; istar < NUM_TRUE_STARS; istar++) // This must be a serial operation.
-	//     {
-	//         xx = mock_ix[istar];
-	//         yy = mock_iy[istar];
-	//         #if SERIAL_DEBUG
-	// 			printf("xx, yy: %d, %d\n", xx, yy);
-	// 		#endif
-	//         int idx = xx*PADDED_DATA_WIDTH+yy;
-	//         if (mock_hash[idx] != -1) {
-	//         	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
-	//             for (l=0; l<INNER; l++) { mock_dX[mock_hash[idx]*AVX_CACHE2+l] += mock_dX[istar*AVX_CACHE2+l]; }
-	//         }
-	//         else {
-	//             mock_hash[idx] = jstar;
-	//             #pragma omp simd // Compiler knows how to unroll.
-	//             for (l=0; l<INNER; l++) { mock_dX[mock_hash[idx]*AVX_CACHE2+l] = mock_dX[istar*AVX_CACHE2+l]; }
-	//             mock_ix[jstar] = xx;
-	//             mock_iy[jstar] = yy;
-	//             jstar++;
-	//         }
-	//         #if SERIAL_DEBUG
-	// 			printf("check. jstar %d\n", jstar);
-	// 		#endif
-	//     }
-	//     #if SERIAL_DEBUG
-	// 		printf("Finished hashing.\n");
-	// 	#endif
+		jstar = 0;
+	    for (istar = 0; istar < NUM_TRUE_STARS; istar++) // This must be a serial operation.
+	    {
+	        xx = mock_ix[istar];
+	        yy = mock_iy[istar];
+	        #if SERIAL_DEBUG
+				printf("xx, yy: %d, %d\n", xx, yy);
+			#endif
+	        int idx = xx*PADDED_NUM_COLS+yy;
+	        if (mock_hash[idx] != -1) {
+	        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
+	            for (l=0; l<INNER; l++) { mock_dX[mock_hash[idx]*AVX_CACHE2+l] += mock_dX[istar*AVX_CACHE2+l]; }
+	        }
+	        else {
+	            mock_hash[idx] = jstar;
+	            #pragma omp simd // Compiler knows how to unroll.
+	            for (l=0; l<INNER; l++) { mock_dX[mock_hash[idx]*AVX_CACHE2+l] = mock_dX[istar*AVX_CACHE2+l]; }
+	            mock_ix[jstar] = xx;
+	            mock_iy[jstar] = yy;
+	            jstar++;
+	        }
+	        #if SERIAL_DEBUG
+				printf("check. jstar %d\n", jstar);
+			#endif
+	    }
+	    #if SERIAL_DEBUG
+			printf("Finished hashing.\n");
+		#endif
 
-	// 	// row and col location of the star based on X, Y values.
-	// 	// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
-	// 	// Calculate PSF and then add to model proposed
-	// 	for (k=0; k<jstar; k++){
-	// 		int idx_x = mock_ix[k]; 
-	// 		int idx_y = mock_iy[k];
-	// 		#if SERIAL_DEBUG
-	// 			printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
-	// 		#endif
-	// 		#if POSITIVE_PSF
-	// 			// If clipping any negative vals of PSF is demanded, then compute the whole PSF first and then add.
-	// 			float positive_psf_helper[NPIX2];
-	// 			#pragma omp simd
-	// 			for (l=0; l<NPIX2; l++){
-	// 				positive_psf_helper[l] = 0;
-	// 			}
-	// 			// Compute the PSF
-	// 			for (l=0; l<NPIX2; l++){
-	// 				#pragma omp simd
-	// 				for (m=0; m<INNER; m++){
-	// 					positive_psf_helper[l] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-	// 				}
-	// 			}
-	// 			// Add the PSF
-	// 			#pragma omp simd
-	// 			for (l=0; l<NPIX2; l++){
-	// 				float a = positive_psf_helper[l];
-	// 				float b = DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)];
-	// 				DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
-	// 		}// End of PSF calculation for K-th star
+		// row and col location of the star based on X, Y values.
+		// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
+		// Calculate PSF and then add to model proposed
+		for (k=0; k<jstar; k++){
+			int idx_x = mock_ix[k]; 
+			int idx_y = mock_iy[k];
+			#if SERIAL_DEBUG
+				printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
+			#endif
+			#if POSITIVE_PSF
+				// If clipping any negative vals of PSF is demanded, then compute the whole PSF first and then add.
+				float positive_psf_helper[NPIX2];
+				#pragma omp simd
+				for (l=0; l<NPIX2; l++){
+					positive_psf_helper[l] = 0;
+				}
+				// Compute the PSF
+				for (l=0; l<NPIX2; l++){
+					#pragma omp simd
+					for (m=0; m<INNER; m++){
+						positive_psf_helper[l] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+					}
+				}
+				// Add the PSF
+				#pragma omp simd
+				for (l=0; l<NPIX2; l++){
+					float a = positive_psf_helper[l];
+					float b = DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)];
+					DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
+			}// End of PSF calculation for K-th star
 
-	// 		#else
-	// 			#pragma omp simd collapse(2)
-	// 			for (l=0; l<NPIX2; l++){
-	// 				for (m=0; m<INNER; m++){
-	// 					DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_DATA_WIDTH + (idx_y+(l%NPIX)-NPIX_div2)] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-	// 				}
-	// 			}// End of PSF calculation for K-th star					
-	// 		#endif				
-	// 	}
-	// 	#if SERIAL_DEBUG
-	// 		printf("Finished generating the underlying flux of the model.\n");
-	// 	#endif
+			#else
+				#pragma omp simd collapse(2)
+				for (l=0; l<NPIX2; l++){
+					for (m=0; m<INNER; m++){
+						DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+					}
+				}// End of PSF calculation for K-th star					
+			#endif				
+		}
+		#if SERIAL_DEBUG
+			printf("Finished generating the underlying flux of the model.\n");
+		#endif
 
-	// 	// Poisson generation of the model
-	// 	#pragma omp parallel for collapse(2)
-	// 	for (l=BLOCK/2; l<(BLOCK/2+DATA_WIDTH); l++){
-	// 		for (m=BLOCK/2; m<(BLOCK/2+DATA_WIDTH); m++){
-	// 			// printf("%d, %d: %.3f\n", l, m, DATA[l*PADDED_DATA_WIDTH+m]);
-	// 			DATA[l*PADDED_DATA_WIDTH+m] = rand_poisson((double) (GAIN * DATA[l*PADDED_DATA_WIDTH+m])) / GAIN;
-	// 			// printf("Completed: %.3f\n", DATA[l*PADDED_DATA_WIDTH+m]);
-	// 		}
-	// 	}
+		// Poisson generation of the model
+		#pragma omp parallel for collapse(2)
+		for (l=PAD-1; l<(PAD+NUM_ROWS); l++){
+			for (m=PAD-1; m<(PAD+NUM_COLS); m++){
+				// printf("%d, %d: %.3f\n", l, m, DATA[l*PADDED_NUM_COLS+m]);
+				DATA[l*PADDED_NUM_COLS+m] = rand_poisson((double) (GAIN * DATA[l*PADDED_NUM_COLS+m])) / GAIN;
+				// printf("Completed: %.3f\n", DATA[l*PADDED_DATA_WIDTH+m]);
+			}
+		}
 
-	// 	// Saving the data
-	// 	FILE *fp_DATA = NULL;
-	// 	fp_DATA = fopen("MOCK_DATA.bin", "wb"); // Note that the data matrix is already padded.
-	// 	fwrite(&DATA, sizeof(float), IMAGE_SIZE, fp_DATA);
-	// 	fclose(fp_DATA);		
-	// #else // If GENERATE_NEW_MOCK is 0
-	// 	FILE *fp_DATA = NULL;
-	// 	fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
-	// 	fread(&DATA, sizeof(float), IMAGE_SIZE, fp_DATA);
-	// 	fclose(fp_DATA);
-	// #endif 
+		// Saving the data
+		FILE *fp_DATA = NULL;
+		fp_DATA = fopen("MOCK_DATA.bin", "wb"); // Note that the data matrix is already padded.
+		fwrite(&DATA, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA);
+		fclose(fp_DATA);		
+	#else // If GENERATE_NEW_MOCK is 0
+		FILE *fp_DATA = NULL;
+		fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
+		fread(&DATA, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA);
+		fclose(fp_DATA);
+	#endif 
 	// // ------ End of GENERATE NEW MOCK ------- //
 
 
@@ -766,53 +767,47 @@ int main(int argc, char *argv[])
 
 
 
-	// #if COMPUTE_LOGLIKE
-	// 	double dt_loglike0 = -omp_get_wtime();
+	#if COMPUTE_LOGLIKE
+		double dt_loglike0 = -omp_get_wtime();
 
-	// 	// ---- Calculate the likelihood based on the curret model ---- //
-	// 	double lnL0 = 0; // Loglike 
-	// 	// double model_sum0 = 0; // Sum of all model values w/o padding
-	// 	// double data_sum0 = 0; // Sum of all data values w/o padding
-	// 	#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL0)//, model_sum0, data_sum0)
-	// 	for (i=BLOCK/2; i<((BLOCK/2)+DATA_WIDTH); i++){
-	// 		for (j=BLOCK/2; j<((BLOCK/2)+DATA_WIDTH); j++){
-	// 			int idx = i*PADDED_DATA_WIDTH+j;
-	// 			// Poisson likelihood
-	// 			float tmp = MODEL[idx];
-	// 			float f = log(tmp);
-	// 			float g = f * DATA[idx];
-	// 			lnL0 += g - tmp;
-	// 			// model_sum0 += tmp;
-	// 			// data_sum0 += DATA[idx];
-	// 		}// end of column loop
-	// 	} // End of row loop
+		// ---- Calculate the likelihood based on the curret model ---- //
+		double lnL0 = 0; // Loglike 
+		#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL0)
+		for (i=PAD-1; i<(PAD+NUM_ROWS); i++){
+			for (j=PAD-1; j<(PAD+NUM_COLS); j++){
+				int idx = i*PADDED_NUM_COLS+j;
+				// Poisson likelihood
+				float tmp = MODEL[idx];
+				float f = log(tmp);
+				float g = f * DATA[idx];
+				lnL0 += g - tmp;
+			}// end of column loop
+		} // End of row loop
 
-	// 	lnL0 *= GAIN;// Multiple by the gain factor
-	// 	dt_loglike0 += omp_get_wtime();
-	// 	printf("\n");
-	// 	printf("Time for computing initial loglike (us): %.3f\n", dt_loglike0 * 1e06);
-	// 	printf("Initial lnL: %.3f\n", lnL0);
-	// 	// printf("Initial MODEL sum: %.3f\n", model_sum0);
-	// 	// printf("Initial DATA sum: %.3f\n", data_sum0);		
-	// 	printf("\n");		
-	// 	// Save the loglike as default.
-	// 	fwrite(&lnL0, sizeof(double), 1, fplnL);		
-	// #endif
+		lnL0 *= GAIN;// Multiple by the gain factor
+		dt_loglike0 += omp_get_wtime();
+		printf("\n");
+		printf("Time for computing initial loglike (us): %.3f\n", dt_loglike0 * 1e06);
+		printf("Initial lnL: %.3f\n", lnL0);
+		printf("\n");		
+		// Save the loglike as default.
+		fwrite(&lnL0, sizeof(double), 1, fplnL);		
+	#endif
 
- //    // Save the initial draws for the model
-	// #if SAVE_CHAIN
-	// 	double dt_savechain0 = -omp_get_wtime();
-	// 	for (i=0; i<MAX_STARS; i++){
-	// 		int idx = i * AVX_CACHE;
-	// 		float x = OBJS[idx + BIT_X];
-	// 		float y = OBJS[idx + BIT_Y];
-	// 		float f = OBJS[idx + BIT_FLUX];
-	// 		fwrite(&x, sizeof(float), 1, fpx);
-	// 		fwrite(&y, sizeof(float), 1, fpy);
-	// 		fwrite(&f, sizeof(float), 1, fpf);				
-	// 	}
-	// 	dt_savechain0 += omp_get_wtime();
-	// #endif
+    // Save the initial draws for the model
+	#if SAVE_CHAIN
+		double dt_savechain0 = -omp_get_wtime();
+		for (i=0; i<MAX_STARS; i++){
+			int idx = i * AVX_CACHE;
+			float x = OBJS[idx + BIT_X];
+			float y = OBJS[idx + BIT_Y];
+			float f = OBJS[idx + BIT_FLUX];
+			fwrite(&x, sizeof(float), 1, fpx);
+			fwrite(&y, sizeof(float), 1, fpy);
+			fwrite(&f, sizeof(float), 1, fpf);				
+		}
+		dt_savechain0 += omp_get_wtime();
+	#endif
 
 	// Save the initial model
 	#if SAVE_MODEL
@@ -823,9 +818,9 @@ int main(int argc, char *argv[])
 	#endif
 
 
-	// double start, end, dt, dt_per_iter; // For timing purpose.
-	// double dt_total, start_total, end_total; // Measure time taken for the whole run.	
-	// dt = 0; // Time accumulator
+	double start, end, dt, dt_per_iter; // For timing purpose.
+	double dt_total, start_total, end_total; // Measure time taken for the whole run.	
+	dt = 0; // Time accumulator
 
 	// dt_total = -omp_get_wtime();
 	// printf("\nSampling starts here.\n");
