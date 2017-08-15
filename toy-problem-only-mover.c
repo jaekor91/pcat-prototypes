@@ -21,6 +21,17 @@
 #include <assert.h>
 #include <sys/mman.h>
 
+// Some MACRO functions
+ #define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+#define min(a,b) \
+    ({ typeof (a) _a = (a);    \
+	typeof (b) _b = (b);   \
+        _a < _b ? _a : _b; })   
+
+
 // ----- Problem dimensions ---- // 
 // Some useful dimensions used in the program
 #define INNER 10
@@ -63,6 +74,8 @@
 #define NUM_BLOCKS_IN_Y ((int) (round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_IN_X * NUM_BLOCKS_IN_Y)
 #define MESH_SIZE (NUM_BLOCKS_TOTAL * BLOCK * BLOCK)
+#define GLOBAL_OFFSET_X ((int) (NUM_ROWS-NUM_BLOCKS_IN_X * BLOCK)/2) // Global offsets for making the centers of image and block mesh conincide
+#define GLOBAL_OFFSET_Y ((int) (NUM_COLS-NUM_BLOCKS_IN_Y * BLOCK)/2)
 
 // ---- Mock generation ----- //
 #define GENERATE_NEW_MOCK 1 // If 1, generate mock data based on the global parameters 
@@ -130,15 +143,7 @@
 #endif 
 
 
-// Some MACRO functions
- #define max(a,b) \
-   ({ __typeof__ (a) _a = (a); \
-       __typeof__ (b) _b = (b); \
-     _a > _b ? _a : _b; })
-#define min(a,b) \
-    ({ typeof (a) _a = (a);    \
-	typeof (b) _b = (b);   \
-        _a < _b ? _a : _b; })   
+
 
 
 int generate_offset(int a, int b)
@@ -847,11 +852,11 @@ int main(int argc, char *argv[])
 			// Positive offset corresponds to adding offset_X, offset_Y for getting the 
 			// relevant DATA and MODEL elements but subtracting when computing the block id.
 			#if OFFSET
-				int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
-				int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+				int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2 + GLOBAL_OFFSET_X;
+				int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2 + GLOBAL_OFFSET_Y;
 			#else
-				int offset_X = 0; 
-				int offset_Y = 0; 
+				int offset_X = GLOBAL_OFFSET_X; 
+				int offset_Y = GLOBAL_OFFSET_Y; 
 			#endif 
 			#if DEBUG
 				printf("Offset X, Y: %d, %d\n\n", offset_X, offset_Y);
