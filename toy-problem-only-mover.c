@@ -936,10 +936,11 @@ int main(int argc, char *argv[])
 				private(block_ID, k, l, m, jstar, istar, xx, yy)
 			for (block_ID=0; block_ID < NUM_BLOCKS_TOTAL; block_ID+=INCREMENT){ // Row direction				
 					int k, l, m; // private loop variables
-					// int block_ID = (ibx * NUM_BLOCKS_IN_Y) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
 					int ibx = block_ID / NUM_BLOCKS_IN_Y;
 					int iby = block_ID % NUM_BLOCKS_IN_Y;
 					int t_id = omp_get_thread_num();
+					// int block_ID = (ibx * NUM_BLOCKS_IN_Y) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.					
+					// printf("block_ID, ibx, iby: %d, %d, %d\n", block_ID, ibx, iby);
 
 					#if SERIAL_DEBUG
 						printf("\nStart of Block %d computation.\n", block_ID);
@@ -954,7 +955,7 @@ int main(int argc, char *argv[])
 
 					// Sift through the relevant regions of OBJS_HASH to find objects that belong to the
 					// proposal region of the block.
-					int start_idx = 0;//block_ID * MAXCOUNT * NUM_THREADS;
+					int start_idx = block_ID * MAXCOUNT * NUM_THREADS;
 					for (k=0; k < (MAXCOUNT * NUM_THREADS); k++){
 						int tmp = OBJS_HASH[start_idx+k]; // See if an object is deposited.
 						if (tmp>-1){ // if yes, then collect it.
@@ -965,118 +966,118 @@ int main(int argc, char *argv[])
 					}
 
 
-	// 				#if SERIAL_DEBUG
-	// 					printf("Number of objects in this block: %d\n", p_nobjs);
-	// 				#endif
+					#if SERIAL_DEBUG
+						printf("Number of objects in this block: %d\n", p_nobjs);
+					#endif
 
-	// 			#if MODEL_EVAL_STEP
-	// 				if (p_nobjs > 0) // Proceed with the rest only if there are objects in the region.
-	// 				{
-	// 					// ----- Transfer objects (x, y, f) to cache ------ //
-	// 					#pragma omp simd collapse(2) 					
-	// 					for (k=0; k<p_nobjs; k++){
-	// 						for (l=0; l<AVX_CACHE; l++){
-	// 							p_objs[AVX_CACHE*k+l] = OBJS[p_objs_idx[k]*AVX_CACHE+l];
-	// 						}
-	// 					}
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished reading the current values.\n");
-	// 					#endif
+				#if MODEL_EVAL_STEP
+					if (p_nobjs > 0) // Proceed with the rest only if there are objects in the region.
+					{
+						// ----- Transfer objects (x, y, f) to cache ------ //
+						#pragma omp simd collapse(2) 					
+						for (k=0; k<p_nobjs; k++){
+							for (l=0; l<AVX_CACHE; l++){
+								p_objs[AVX_CACHE*k+l] = OBJS[p_objs_idx[k]*AVX_CACHE+l];
+							}
+						}
+						#if SERIAL_DEBUG
+							printf("Finished reading the current values.\n");
+						#endif
 
-	// 					// Debug: Looking at objects selected for change. Must mach objects
-	// 					#if DEBUG
-	// 						if (block_ID==BLOCK_ID_DEBUG){
-	// 							printf("\n*** After collection in the block ***\n");
-	// 							printf("BID: %d\n", block_ID);								
-	// 							printf("Number of objects in the block: %d\n", p_nobjs);
-	// 							for (k=0; k<p_nobjs; k++){
-	// 								float x_float = p_objs[AVX_CACHE*k+BIT_X];
-	// 								float y_float = p_objs[AVX_CACHE*k+BIT_Y];
-	// 								float x = x_float - (BLOCK/2) - offset_X;
-	// 								float y = y_float - (BLOCK/2) - offset_Y;			
-	// 								int x_in_block = x - ibx * BLOCK;
-	// 								int y_in_block = y - iby * BLOCK;								
-	// 								printf("OBJS number: %d\n", p_objs_idx[k]);							
-	// 								printf("Block id x,y: %d, %d\n", ibx, iby);
-	// 								printf("x,y before adjustment: %.1f, %.1f\n", x_float, y_float);
-	// 								printf("x,y after adjustment: %.1f, %.1f\n", x, y);
-	// 								printf("x,y in block: %d, %d\n", x_in_block, y_in_block);							
-	// 								printf("\n");
-	// 							}																	
-	// 						}
-	// 					#endif	
-	// 					// ----- Gather operation for the current values ----- //
-	// 					// For simd computation later.
-	// 					__attribute__((aligned(64))) float current_flux[MAXCOUNT_BLOCK];
-	// 					__attribute__((aligned(64))) float current_x[MAXCOUNT_BLOCK];
-	// 					__attribute__((aligned(64))) float current_y[MAXCOUNT_BLOCK];					
-	// 					for (k=0; k<p_nobjs; k++){
-	// 						current_x[k] = p_objs[k*AVX_CACHE+BIT_X];
-	// 						current_y[k] = p_objs[k*AVX_CACHE+BIT_Y];
-	// 						current_flux[k] = p_objs[k*AVX_CACHE+BIT_FLUX];
-	// 					}
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished gathering x, y, f values in linear arrays.\n");
-	// 					#endif
+						// Debug: Looking at objects selected for change. Must mach objects
+						#if DEBUG
+							if (block_ID==BLOCK_ID_DEBUG){
+								printf("\n*** After collection in the block ***\n");
+								printf("BID: %d\n", block_ID);								
+								printf("Number of objects in the block: %d\n", p_nobjs);
+								for (k=0; k<p_nobjs; k++){
+									float x_float = p_objs[AVX_CACHE*k+BIT_X];
+									float y_float = p_objs[AVX_CACHE*k+BIT_Y];
+									float x = x_float - PAD - offset_X;
+									float y = y_float - PAD - offset_Y;			
+									int x_in_block = x - ibx * BLOCK;
+									int y_in_block = y - iby * BLOCK;								
+									printf("OBJS number: %d\n", p_objs_idx[k]);							
+									printf("Block id x,y: %d, %d\n", ibx, iby);
+									printf("x,y before adjustment: %.1f, %.1f\n", x_float, y_float);
+									printf("x,y after adjustment: %.1f, %.1f\n", x, y);
+									printf("x,y in block: %d, %d\n", x_in_block, y_in_block);							
+									printf("\n");
+								}																	
+							}
+						#endif	
+						// ----- Gather operation for the current values ----- //
+						// For simd computation later.
+						__attribute__((aligned(64))) float current_flux[MAXCOUNT_BLOCK];
+						__attribute__((aligned(64))) float current_x[MAXCOUNT_BLOCK];
+						__attribute__((aligned(64))) float current_y[MAXCOUNT_BLOCK];					
+						for (k=0; k<p_nobjs; k++){
+							current_x[k] = p_objs[k*AVX_CACHE+BIT_X];
+							current_y[k] = p_objs[k*AVX_CACHE+BIT_Y];
+							current_flux[k] = p_objs[k*AVX_CACHE+BIT_FLUX];
+						}
+						#if SERIAL_DEBUG
+							printf("Finished gathering x, y, f values in linear arrays.\n");
+						#endif
 
-	// 					// ------ Draw unit normal random numbers to be used. ------- //
-	// 					// 3 * p_nobjs random normal number for f, x, y.
-	// 					unsigned int p_seed = time_seed * (1+t_id); // Note that this seeding is necessary					
-	// 					__attribute__((aligned(64))) float randn[4 * MAXCOUNT_BLOCK]; // 4 since the alogrithm below generates two random numbers at a time
-	// 													// I may be generating way more than necessary.
-	// 					#pragma omp simd
-	// 					for (k=0; k < 2 * MAXCOUNT_BLOCK; k++){
-	// 						// Using 
-	// 						float u = (rand_r(&p_seed) / (float) RAND_MAX);
-	// 						float v = (rand_r(&p_seed) / (float) RAND_MAX);
-	// 						float R = sqrt(-2 * log(u));
-	// 						float cosv = cos(2 * M_PI * v);
-	// 						float sinv = sin(2 * M_PI * v);
-	// 						randn[k] = R * cosv;
-	// 						randn[k+2*MAXCOUNT_BLOCK] = R * sinv;
-	// 						// printf("%.3f, ", randn[k]); // For debugging. 
-	// 					}
+						// ------ Draw unit normal random numbers to be used. ------- //
+						// 3 * p_nobjs random normal number for f, x, y.
+						unsigned int p_seed = time_seed * (1+t_id); // Note that this seeding is necessary					
+						__attribute__((aligned(64))) float randn[4 * MAXCOUNT_BLOCK]; // 4 since the alogrithm below generates two random numbers at a time
+														// I may be generating way more than necessary.
+						#pragma omp simd
+						for (k=0; k < 2 * MAXCOUNT_BLOCK; k++){
+							// Using 
+							float u = (rand_r(&p_seed) / (float) RAND_MAX);
+							float v = (rand_r(&p_seed) / (float) RAND_MAX);
+							float R = sqrt(-2 * log(u));
+							float cosv = cos(2 * M_PI * v);
+							float sinv = sin(2 * M_PI * v);
+							randn[k] = R * cosv;
+							randn[k+2*MAXCOUNT_BLOCK] = R * sinv;
+							// printf("%.3f, ", randn[k]); // For debugging. 
+						}
 
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished generating normal random number numbers.\n");
-	// 					#endif
+						#if SERIAL_DEBUG
+							printf("Finished generating normal random number numbers.\n");
+						#endif
 
-	// 					// ----- Generate proposed values ------ //
-	// 					// Note: Proposed fluxes must be above the minimum flux.
-	// 					__attribute__((aligned(64))) float proposed_flux[MAXCOUNT_BLOCK];
-	// 					__attribute__((aligned(64))) float proposed_x[MAXCOUNT_BLOCK];
-	// 					__attribute__((aligned(64))) float proposed_y[MAXCOUNT_BLOCK];
-	// 					#pragma omp simd
-	// 					for (k=0; k<p_nobjs; k++){
-	// 						// Flux
-	// 						#if FREEZE_F
-	// 							float df = 0;
-	// 						#else
-	// 							float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * LINEAR_FLUX_STEPSIZE; // (60./np.sqrt(25.))
-	// 						#endif
-	// 						float f0 = current_flux[k];
-	// 						float pf1 = f0+df;
-	// 						float pf2 = -pf1 + 2*TRUE_MIN_FLUX; // If the proposed flux is below minimum, bounce off. Why this particular form?
-	// 						proposed_flux[k] = max(pf1, pf2);
+						// ----- Generate proposed values ------ //
+						// Note: Proposed fluxes must be above the minimum flux.
+						__attribute__((aligned(64))) float proposed_flux[MAXCOUNT_BLOCK];
+						__attribute__((aligned(64))) float proposed_x[MAXCOUNT_BLOCK];
+						__attribute__((aligned(64))) float proposed_y[MAXCOUNT_BLOCK];
+						#pragma omp simd
+						for (k=0; k<p_nobjs; k++){
+							// Flux
+							#if FREEZE_F
+								float df = 0;
+							#else
+								float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * LINEAR_FLUX_STEPSIZE; // (60./np.sqrt(25.))
+							#endif
+							float f0 = current_flux[k];
+							float pf1 = f0+df;
+							float pf2 = -pf1 + 2*TRUE_MIN_FLUX; // If the proposed flux is below minimum, bounce off. Why this particular form?
+							proposed_flux[k] = max(pf1, pf2);
 
-	// 						#if SET_UPPER_FLUX_LIMIT
-	// 							proposed_flux[k] = min(proposed_flux[k], FLUX_UPPER_LIMIT); // If the proposed flux becomes too large, then set to the max val.
-	// 						#endif
+							#if SET_UPPER_FLUX_LIMIT
+								proposed_flux[k] = min(proposed_flux[k], FLUX_UPPER_LIMIT); // If the proposed flux becomes too large, then set to the max val.
+							#endif
 
-	// 						// Position
-	// 						float dpos_rms = LINEAR_FLUX_STEPSIZE / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
-	// 						#if FREEZE_XY
-	// 							float dx = 1e-3;
-	// 							float dy = 0;
-	// 						#else
-	// 							float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
-	// 							float dy = randn[BIT_Y * MAXCOUNT_BLOCK + k] * dpos_rms;
-	// 							// printf("%.5f, ", dx);
-	// 						#endif
+							// Position
+							float dpos_rms = LINEAR_FLUX_STEPSIZE / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
+							#if FREEZE_XY
+								float dx = 1e-3;
+								float dy = 0;
+							#else
+								float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
+								float dy = randn[BIT_Y * MAXCOUNT_BLOCK + k] * dpos_rms;
+								// printf("%.5f, ", dx);
+							#endif
 
-	// 						proposed_x[k] = current_x[k] + dx;
-	// 						proposed_y[k] = current_y[k] + dy;
-	// 					}
+							proposed_x[k] = current_x[k] + dx;
+							proposed_y[k] = current_y[k] + dy;
+						}
 	// 					#if SERIAL_DEBUG
 	// 						printf("Finished computing proposed x, y, f values.\n");
 	// 					#endif
@@ -1490,18 +1491,18 @@ int main(int argc, char *argv[])
 	// 						} // Finished updating						
 	// 					}// end of proposal accept/reject}
 
-	// 				}// End of a step, if there are objects to perturb
-	// 				else{
-	// 					#if SERIAL_DEBUG
-	// 						printf("There were no objects so skip.\n");
-	// 					#endif
-	// 				}
+					}// End of a step, if there are objects to perturb
+					else{
+						#if SERIAL_DEBUG
+							printf("There were no objects so skip.\n");
+						#endif
+					}
 
-	// 			#endif // End of model eval step
+				#endif // End of model eval step
 
-			// 	#if SERIAL_DEBUG
-			// 		printf("End of Block %d computation.\n\n", block_ID);
-			// 	#endif
+				#if SERIAL_DEBUG
+					printf("End of Block %d computation.\n\n", block_ID);
+				#endif
 			}// End of iteration through blocks. End of a paralell region.
 
 			// Print the x, y, f of a particular particle
