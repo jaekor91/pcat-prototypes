@@ -98,7 +98,7 @@
 #define FREEZE_F 0 // If 1, free the flux
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 1 // Number of threads used for execution.
+#define NUM_THREADS 4 // Number of threads used for execution.
 #define POSITIVE_PSF 1	// If 1, whenever computed PSF is negative, clip it at 0.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
@@ -125,8 +125,8 @@
 	#define NLOOP 1 // Number of times to loop before sampling
 	#define NSAMPLE 1 // Numboer samples to collect
 #else // If in normal mode
-	#define NLOOP 1// Number of times to loop before sampling
-	#define NSAMPLE 1// Numboer samples to collect
+	#define NLOOP 1000// Number of times to loop before sampling
+	#define NSAMPLE 400// Numboer samples to collect
 #endif 
 
 
@@ -1226,270 +1226,272 @@ int main(int argc, char *argv[])
 							printf("Finished computing ix, iy.\n");
 						#endif
 
-						// #if DEBUG 
-						// 	if (block_ID == BLOCK_ID_DEBUG){
-						// 		for (k=0; k<p_nobjs; k++){
-						// 			printf("%d, %d\n", ix[k], iy[k]);
-						// 		}
-						// 		printf("Printed all objs.\n\n");
-						// 	}
-						// #endif 
+						#if DEBUG 
+							if (block_ID == BLOCK_ID_DEBUG){
+								for (k=0; k<p_nobjs; k++){
+									printf("%d, %d\n", ix[k], iy[k]);
+								}
+								printf("Printed all objs.\n\n");
+							}
+						#endif 
 
 
 
-	// 					// Step strategy: Read in the current model, calculate the loglike, 
-	// 					// directly insert PSF, calculate loglike again and comapre
+						// Step strategy: Read in the current model, calculate the loglike, 
+						// directly insert PSF, calculate loglike again and comapre
 
-	// 					// ------ Transfer data and model for the block ----- //
-	// 					__attribute__((aligned(64))) float model_proposed[BLOCK * BLOCK];
-	// 					__attribute__((aligned(64))) float data[BLOCK * BLOCK];
+						// ------ Transfer data and model for the block ----- //
+						__attribute__((aligned(64))) float model_proposed[BLOCK * BLOCK];
+						__attribute__((aligned(64))) float data[BLOCK * BLOCK];
 
-	// 					#pragma omp simd collapse(2)
-	// 					for (l=0; l<BLOCK; l++){
-	// 						for (k=0; k<BLOCK; k++){
-	// 							model_proposed[l*BLOCK + k] = MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];
-	// 							data[l*BLOCK + k] = DATA[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)];
-	// 						}
-	// 					}
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished transferring MODEL and DATA for the block.\n");
-	// 					#endif
+						// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
+						int l_min = 0;
+						int l_max = BLOCK;
+						int m_min = 0;
+						int m_max = BLOCK;
+						if (idx_row < PAD) { l_min = PAD - idx_row;}
+						if (idx_col < PAD) { m_min = PAD - idx_col;}
+						// if ( (idx_row+BLOCK) > (DATA_WIDTH+BLOCK/2-1)) { l_max = BLOCK - (idx_row+BLOCK-DATA_WIDTH-BLOCK/2+1); }
+						if ( idx_row > (NUM_ROWS+PAD-BLOCK-1)) { l_max = -idx_row+NUM_ROWS+PAD; }
+						if ( idx_col > (NUM_COLS+PAD-BLOCK-1)) { m_max = -idx_col+NUM_COLS+PAD; }
+
+						for (l=l_min; l<l_max; l++){
+							#pragma omp simd
+							for (m=m_min; m<m_max; m++){
+								model_proposed[l*BLOCK + m] = MODEL[(idx_row+l)*PADDED_NUM_COLS + (idx_col+m)];
+								data[l*BLOCK + m] = DATA[(idx_row+l)*PADDED_NUM_COLS + (idx_col+m)];
+							}
+						}
+
+						#if SERIAL_DEBUG
+							printf("Finished transferring MODEL and DATA for the block.\n");
+						#endif
 				
-	// 					// // ----- Compute the original likelihood based on the current model. ----- //
-	// 					float b_loglike = 0;// Original block likelihood
-	// 					float p_loglike = 0; // Proposed move's loglikehood
-	// 					float loglike_simd_helper[AVX_CACHE2]; // Loglike simd helper array
+						// // ----- Compute the original likelihood based on the current model. ----- //
+						float b_loglike = 0;// Original block likelihood
+						float p_loglike = 0; // Proposed move's loglikehood
+						float loglike_simd_helper[AVX_CACHE2]; // Loglike simd helper array
 
-	// 					// Setting up the boundary properly. Don't evaluate the likelihood where there is no data. 
-	// 					int l_min = 0;
-	// 					int l_max = BLOCK;
-	// 					int m_min = 0;
-	// 					int m_max = BLOCK;
-	// 					if (idx_row < BLOCK/2) { l_min = BLOCK/2 - idx_row;}
-	// 					if (idx_col < BLOCK/2) { m_min = BLOCK/2 - idx_col;}
-	// 					// if ( (idx_row+BLOCK) > (DATA_WIDTH+BLOCK/2-1)) { l_max = BLOCK - (idx_row+BLOCK-DATA_WIDTH-BLOCK/2+1); }
-	// 					if ( idx_row > (DATA_WIDTH-BLOCK/2-1)) { l_max = -idx_row+DATA_WIDTH+(BLOCK/2); }
-	// 					if ( idx_col > (DATA_WIDTH-BLOCK/2-1)) { m_max = -idx_col+DATA_WIDTH+(BLOCK/2); }
 
-	// 					// #if DEBUG
-	// 					// 	if (block_ID == BLOCK_ID_DEBUG) { 
-	// 					// 		printf("%4d\n", block_ID);
-	// 					// 		printf("%4d, %4d\n", idx_row, idx_col);
-	// 					// 		printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
-	// 					// 	}
-	// 					// #endif
+						#if DEBUG
+							if (block_ID == BLOCK_ID_DEBUG) { 
+								printf("%4d\n", block_ID);
+								printf("%4d, %4d\n", idx_row, idx_col);
+								printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
+							}
+						#endif
 
-	// 				#if COMPUTE_LOGLIKE_LOCAL
-	// 					// Initialize the helper array
-	// 					for (l=0; l<AVX_CACHE2; l++){
-	// 						loglike_simd_helper[l] = 0;
-	// 					}
+					#if COMPUTE_LOGLIKE_LOCAL
+						// Initialize the helper array
+						for (l=0; l<AVX_CACHE2; l++){
+							loglike_simd_helper[l] = 0;
+						}
 
-	// 					for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.
-	// 						#pragma omp simd
-	// 						for (m = m_min; m < m_max; m++){
-	// 							int idx = l*BLOCK+m;
-	// 							// Poisson likelihood
-	// 							float tmp = model_proposed[idx];
-	// 							float f = log(tmp);
-	// 							float g = f * data[idx];
-	// 							loglike_simd_helper[m%AVX_CACHE2] += g - tmp;
-	// 						}
-	// 					}						
+						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.
+							#pragma omp simd
+							for (m = m_min; m < m_max; m++){
+								int idx = l*BLOCK+m;
+								// Poisson likelihood
+								float tmp = model_proposed[idx];
+								float f = log(tmp);
+								float g = f * data[idx];
+								loglike_simd_helper[m%AVX_CACHE2] += g - tmp;
+							}
+						}						
 
-	// 					// Sum the loglike variable
-	// 					for (l=0; l<AVX_CACHE2; l++){
-	// 						b_loglike += loglike_simd_helper[l];
-	// 					}
-	// 				#endif // End of computing local loglikelihood before update 
+						// Sum the loglike variable
+						for (l=0; l<AVX_CACHE2; l++){
+							b_loglike += loglike_simd_helper[l];
+						}
+					#endif // End of computing local loglikelihood before update 
 
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished computing current loglike.\n");
-	// 					#endif			
+						#if SERIAL_DEBUG
+							printf("Finished computing current loglike.\n");
+						#endif			
 
-	// 					// ----- Hashing ----- //
-	// 					// This steps reduces number of PSFs that need to be evaluated.					
-	// 					__attribute__((aligned(64))) int hash[BLOCK*BLOCK];
-	// 					// Note: Objs may fall out of the inner proposal region. However
-	// 					// it shouldn't go too much out of it. So as long as MARGIN1 is 
-	// 					// 1 or 2, there should be no problem. 
-	// 					#pragma omp simd // Explicit vectorization
-	// 				    for (k=0; k<BLOCK*BLOCK; k++) { hash[k] = -1; }
-	// 			    	#if SERIAL_DEBUG
-	// 						printf("Initialized hashing variable.\n");
-	// 					#endif
+						// ----- Hashing ----- //
+						// This steps reduces number of PSFs that need to be evaluated.					
+						__attribute__((aligned(64))) int hash[BLOCK*BLOCK];
+						// Note: Objs may fall out of the inner proposal region. However
+						// it shouldn't go too much out of it. So as long as MARGIN1 is 
+						// 1 or 2, there should be no problem. 
+						#pragma omp simd // Explicit vectorization
+					    for (k=0; k<BLOCK*BLOCK; k++) { hash[k] = -1; }
+				    	#if SERIAL_DEBUG
+							printf("Initialized hashing variable.\n");
+						#endif
 
-	// 				    int jstar = 0; // Number of stars after coalescing.
-	// 					int istar;
-	// 					int xx, yy;
-	// 				    for (istar = 0; istar < p_nobjs; istar++) // This must be a serial operation.
-	// 				    {
-	// 				        xx = ix[istar];
-	// 				        yy = iy[istar];
-	// 				        int idx = xx*BLOCK+yy;
-	// 				        if (hash[idx] != -1) {
-	// 				        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
-	// 				            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] += dX[istar*AVX_CACHE2+l]; }
-	// 				        }
-	// 				        else {
-	// 				            hash[idx] = jstar;
-	// 				            #pragma omp simd // Compiler knows how to unroll.
-	// 				            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] = dX[istar*AVX_CACHE2+l]; }
-	// 				            ix[jstar] = xx;
-	// 				            iy[jstar] = yy;
-	// 				            jstar++;
-	// 				        }
-	// 				    }
-	// 				    #if SERIAL_DEBUG
-	// 						printf("Finished hashing.\n");
-	// 					#endif
+					    int jstar = 0; // Number of stars after coalescing.
+						int istar;
+						int xx, yy;
+					    for (istar = 0; istar < p_nobjs; istar++) // This must be a serial operation.
+					    {
+					        xx = ix[istar];
+					        yy = iy[istar];
+					        int idx = xx*BLOCK+yy;
+					        if (hash[idx] != -1) {
+					        	#pragma omp simd // Compiler knows how to unroll. But it doesn't seem to effective vectorization.
+					            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] += dX[istar*AVX_CACHE2+l]; }
+					        }
+					        else {
+					            hash[idx] = jstar;
+					            #pragma omp simd // Compiler knows how to unroll.
+					            for (l=0; l<INNER; l++) { dX[hash[idx]*AVX_CACHE2+l] = dX[istar*AVX_CACHE2+l]; }
+					            ix[jstar] = xx;
+					            iy[jstar] = yy;
+					            jstar++;
+					        }
+					    }
+					    #if SERIAL_DEBUG
+							printf("Finished hashing.\n");
+						#endif
 
-	// 					// row and col location of the star based on X, Y values.
-	// 					// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
-	// 					// Calculate PSF and then add to model proposed
-	// 					for (k=0; k<jstar; k++){
-	// 						int idx_x = ix[k]; // Note that ix and iy are already within block position.
-	// 						int idx_y = iy[k];
-	// 						#if SERIAL_DEBUG
-	// 							printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
-	// 						#endif
+						// row and col location of the star based on X, Y values.
+						// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
+						// Calculate PSF and then add to model proposed
+						for (k=0; k<jstar; k++){
+							int idx_x = ix[k]; // Note that ix and iy are already within block position.
+							int idx_y = iy[k];
+							#if SERIAL_DEBUG
+								printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
+							#endif
 							
-	// 						#if POSITIVE_PSF
-	// 							// If clipping any negative vals of PSF is demanded, then compute the whole PSF first and then add.
-	// 							float positive_psf_helper[NPIX2];
-	// 							#pragma omp simd
-	// 							for (l=0; l<NPIX2; l++){
-	// 								positive_psf_helper[l] = 0;
-	// 							}
-	// 							// Compute the PSF
-	// 							for (l=0; l<NPIX2; l++){
-	// 								#pragma omp simd
-	// 								for (m=0; m<INNER; m++){
-	// 									positive_psf_helper[l] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-	// 								}
-	// 							}
+							#if POSITIVE_PSF
+								// If clipping any negative vals of PSF is demanded, then compute the whole PSF first and then add.
+								float positive_psf_helper[NPIX2];
+								#pragma omp simd
+								for (l=0; l<NPIX2; l++){
+									positive_psf_helper[l] = 0;
+								}
+								// Compute the PSF
+								for (l=0; l<NPIX2; l++){
+									#pragma omp simd
+									for (m=0; m<INNER; m++){
+										positive_psf_helper[l] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+									}
+								}
 
-	// 							// Add the PSF
-	// 							#pragma omp simd
-	// 							for (l=0; l<NPIX2; l++){
-	// 								float a = positive_psf_helper[l];
-	// 								float b = model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)];
-	// 								model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
-	// 							}// End of PSF calculation for K-th star
-	// 						#else
-	// 							#pragma omp simd collapse(2)
-	// 							for (l=0; l<NPIX2; l++){
-	// 								for (m=0; m<INNER; m++){
-	// 									model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
-	// 								}
-	// 							}// End of PSF calculation for K-th star
-	// 						#endif				 
+								// Add the PSF
+								#pragma omp simd
+								for (l=0; l<NPIX2; l++){
+									float a = positive_psf_helper[l];
+									float b = model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)];
+									model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
+								}// End of PSF calculation for K-th star
+							#else
+								#pragma omp simd collapse(2)
+								for (l=0; l<NPIX2; l++){
+									for (m=0; m<INNER; m++){
+										model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+									}
+								}// End of PSF calculation for K-th star
+							#endif				 
 
-	// 					}
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished updating the local copy of the MODEL.\n");
-	// 					#endif
+						}
+						#if SERIAL_DEBUG
+							printf("Finished updating the local copy of the MODEL.\n");
+						#endif
 
-	// 					// // ----- Compute the new likelihood ----- //
-	// 				#if COMPUTE_LOGLIKE_LOCAL
-	// 					// Initialize the helper array
-	// 					for (l=0; l<AVX_CACHE2; l++){
-	// 						loglike_simd_helper[l] = 0;
-	// 					}
+						// // ----- Compute the new likelihood ----- //
+					#if COMPUTE_LOGLIKE_LOCAL
+						// Initialize the helper array
+						for (l=0; l<AVX_CACHE2; l++){
+							loglike_simd_helper[l] = 0;
+						}
 
-	// 					for (l = l_min; l < l_max; l++){ 
-	// 						#pragma omp simd							
-	// 						for (m = m_min; m < m_max; m++){
-	// 							int idx = l*BLOCK+m;
-	// 							// Poisson likelihood
-	// 							float tmp = model_proposed[idx];
-	// 							float f = log(tmp);
-	// 							float g = f * data[idx];
-	// 							loglike_simd_helper[m%AVX_CACHE2] += g - tmp;
-	// 						}
-	// 					}						
+						for (l = l_min; l < l_max; l++){ 
+							#pragma omp simd							
+							for (m = m_min; m < m_max; m++){
+								int idx = l*BLOCK+m;
+								// Poisson likelihood
+								float tmp = model_proposed[idx];
+								float f = log(tmp);
+								float g = f * data[idx];
+								loglike_simd_helper[m%AVX_CACHE2] += g - tmp;
+							}
+						}						
 
-	// 					// Sum the loglike variable
-	// 					for (l=0; l<AVX_CACHE2; l++){
-	// 						p_loglike += loglike_simd_helper[l];
-	// 					}
-	// 				#endif	
-	// 					#if SERIAL_DEBUG
-	// 						printf("Computed the new loglike.\n");
-	// 					#endif
+						// Sum the loglike variable
+						for (l=0; l<AVX_CACHE2; l++){
+							p_loglike += loglike_simd_helper[l];
+						}
+					#endif	
+						#if SERIAL_DEBUG
+							printf("Computed the new loglike.\n");
+						#endif
 						
 
-	// 					// Restore the number of objects being perturbed.
-	// 					p_nobjs = p_nobjs/2;
+						// Restore the number of objects being perturbed.
+						p_nobjs = p_nobjs/2;
 					
-	// 					// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
-	// 					// If bigger then undo the addition by subtracting what was added to the model image.
-	// 					#if RANDOM_WALK
-	// 						if (0) // Short circuit so that the proposed changes are always accpeted.
-	// 					#else
-	// 						double dlnL = (p_loglike - b_loglike) * GAIN;
-	// 						float u = (rand_r(&p_seed) / (float) RAND_MAX); // A random uniform number.
-	// 						// printf("%.3f\n", u);
-	// 						if (log(u) > ( dlnL + factor))
-	// 					#endif
-	// 					{
-	// 						ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_REJECT] += 1;							
-	// 						ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_NOBJS_REJECT] += p_nobjs;
-	// 					}
-	// 					else{
-	// 						// Accept the proposal
-	// 					 	// Note that since padded region is never considered for loglike calculation,
-	// 						// there is no need worry about them as we update the image.
-	// 						#pragma omp simd collapse(2)
-	// 						for (l=0; l<BLOCK; l++){
-	// 							for (k=0; k<BLOCK; k++){
-	// 								 MODEL[(idx_row+l)*PADDED_DATA_WIDTH + (idx_col+k)] = model_proposed[l*BLOCK + k];
-	// 							}
-	// 						}
+						// ----- Compare to the old likelihood and if the new value is smaller then update the loglike and continue.
+						// If bigger then undo the addition by subtracting what was added to the model image.
+						#if RANDOM_WALK
+							if (0) // Short circuit so that the proposed changes are always accpeted.
+						#else
+							double dlnL = (p_loglike - b_loglike) * GAIN;
+							float u = (rand_r(&p_seed) / (float) RAND_MAX); // A random uniform number.
+							// printf("%.3f\n", u);
+							if (log(u) > ( dlnL + factor))
+						#endif
+						{
+							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_REJECT] += 1;							
+							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_NOBJS_REJECT] += p_nobjs;
+						}
+						else{
+							// Accept the proposal
+						 	// Note that since padded region is never considered for loglike calculation,
+							// there is no need worry about them as we update the image.
+							for (l=l_min; l<l_max; l++){
+								#pragma omp simd
+								for (m=m_min; m<m_max; m++){
+									MODEL[(idx_row+l)*PADDED_NUM_COLS + (idx_col+m)]=model_proposed[l*BLOCK + m];
+								}
+							}
 
-	// 						ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_ACCEPT] += 1;							
-	// 						ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_NOBJS_ACCEPT] += p_nobjs;
+							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_ACCEPT] += 1;							
+							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_NOBJS_ACCEPT] += p_nobjs;
 
-	// 						// Update each obj according to the perturbation
-	// 						#if DEBUG
-	// 							if (block_ID == BLOCK_ID_DEBUG){
-	// 								printf("\n\n**** Accepted changes ****\n");
-	// 								printf("Number of stars to be updated: %d\n", p_nobjs);
-	// 							}
-	// 						#endif
-	// 						for (k=0; k < p_nobjs; k++){
-	// 							// printf("Begun accessing obj_num\n");	Debug
-	// 							int obj_num = p_objs_idx[k];
-	// 							// printf("Accessed obj_num\n"); Debug
-	// 							int idx =  obj_num * AVX_CACHE;
-	// 							float px = proposed_x[k];
-	// 							float py = proposed_y[k];
-	// 							float pf = proposed_flux[k];
-	// 							#if DEBUG
-	// 								if (block_ID == BLOCK_ID_DEBUG){
-	// 									float x = px - (BLOCK/2) - offset_X;
-	// 									float y = py - (BLOCK/2) - offset_Y;			
-	// 									float x_in_block = x - ibx * BLOCK;
-	// 									float y_in_block = y - iby * BLOCK;								
-	// 									printf("OBJS number: %d\n", obj_num);
-	// 									printf("idx: %d\n", idx);
-	// 									printf("Thread num: %d\n", omp_get_thread_num());
-	// 									printf("Block id x,y: %d, %d\n", ibx, iby);
-	// 									printf("x,y before adjustment: %.3f, %.3f\n", px, py);
-	// 									printf("x,y after adjustment: %.3f, %.3f\n", x, y);
-	// 									printf("x,y in block: %.3f, %.3f\n", x_in_block, y_in_block);							
-	// 									printf("Proposed flux: %.3f\n", pf);
-	// 									printf("Original x,y: %.3f, %.3f\n", OBJS[idx + BIT_X], OBJS[idx + BIT_Y]);
-	// 									printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);				
-	// 									printf("\n");								
-	// 								}	
-	// 							#endif				
-	// 							OBJS[idx + BIT_X] = px;
-	// 							OBJS[idx + BIT_Y] = py;
-	// 							OBJS[idx + BIT_FLUX] = pf;
-	// 							// printf("Finished depositing.\n");
-	// 						} // Finished updating						
-	// 					}// end of proposal accept/reject}
+							// Update each obj according to the perturbation
+							#if DEBUG
+								if (block_ID == BLOCK_ID_DEBUG){
+									printf("\n\n**** Accepted changes ****\n");
+									printf("Number of stars to be updated: %d\n", p_nobjs);
+								}
+							#endif
+							for (k=0; k < p_nobjs; k++){
+								// printf("Begun accessing obj_num\n");	Debug
+								int obj_num = p_objs_idx[k];
+								// printf("Accessed obj_num\n"); Debug
+								int idx =  obj_num * AVX_CACHE;
+								float px = proposed_x[k];
+								float py = proposed_y[k];
+								float pf = proposed_flux[k];
+								#if DEBUG
+									if (block_ID == BLOCK_ID_DEBUG){
+										float x = px - PAD - offset_X;
+										float y = py - PAD - offset_Y;			
+										float x_in_block = x - ibx * BLOCK;
+										float y_in_block = y - iby * BLOCK;								
+										printf("OBJS number: %d\n", obj_num);
+										printf("idx: %d\n", idx);
+										printf("Thread num: %d\n", omp_get_thread_num());
+										printf("Block id x,y: %d, %d\n", ibx, iby);
+										printf("x,y before adjustment: %.3f, %.3f\n", px, py);
+										printf("x,y after adjustment: %.3f, %.3f\n", x, y);
+										printf("x,y in block: %.3f, %.3f\n", x_in_block, y_in_block);							
+										printf("Proposed flux: %.3f\n", pf);
+										printf("Original x,y: %.3f, %.3f\n", OBJS[idx + BIT_X], OBJS[idx + BIT_Y]);
+										printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);				
+										printf("\n");								
+									}	
+								#endif				
+								OBJS[idx + BIT_X] = px;
+								OBJS[idx + BIT_Y] = py;
+								OBJS[idx + BIT_FLUX] = pf;
+								// printf("Finished depositing.\n");
+							} // Finished updating						
+						}// end of proposal accept/reject}
 
 					}// End of a step, if there are objects to perturb
 					else{
@@ -1513,6 +1515,7 @@ int main(int argc, char *argv[])
 			#if SERIAL_DEBUG
 				printf("-------- End of iteration %d --------\n\n", j);
 			#endif
+			// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
 
 		} // End of parallel iteration loop
 
