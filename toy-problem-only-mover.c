@@ -1078,162 +1078,162 @@ int main(int argc, char *argv[])
 							proposed_x[k] = current_x[k] + dx;
 							proposed_y[k] = current_y[k] + dy;
 						}
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished computing proposed x, y, f values.\n");
-	// 					#endif
+						#if SERIAL_DEBUG
+							printf("Finished computing proposed x, y, f values.\n");
+						#endif
 
-	// 					// If the position is outside the image, bounce it back inside
-	// 					for (k=0; k<p_nobjs; k++){
-	// 						float px = proposed_x[k];
-	// 						float py = proposed_y[k];
-	// 						if (px < BLOCK/2){
-	// 							float tmp = (BLOCK/2)-px;
-	// 							proposed_x[k] += 2 * tmp;
-	// 						}
-	// 						else{
-	// 							if (px > (BLOCK/2 + DATA_WIDTH - 1)){
-	// 								float tmp = px - (BLOCK/2 + DATA_WIDTH - 1);									
-	// 								proposed_x[k] -= 2 * tmp;
-	// 							}
-	// 						}
+						// If the position is outside the image, bounce it back inside
+						for (k=0; k<p_nobjs; k++){
+							float px = proposed_x[k];
+							float py = proposed_y[k];
+							if (px < PAD){
+								float tmp = PAD-px;
+								proposed_x[k] += 2 * tmp;
+							}
+							else{
+								if (px > (PAD + NUM_ROWS - 1)){
+									float tmp = px - (PAD + NUM_ROWS - 1);									
+									proposed_x[k] -= 2 * tmp;
+								}
+							}
 
-	// 						if (py < BLOCK/2){
-	// 							float tmp = (BLOCK/2)-py;
-	// 							proposed_y[k] += 2 * tmp;
-	// 						}
-	// 						else{
-	// 							if (py > (BLOCK/2 + DATA_WIDTH - 1)){
-	// 								float tmp = py - (BLOCK/2 + DATA_WIDTH - 1);									
-	// 								proposed_y[k] -= 2 * tmp;
-	// 							}
-	// 						}
-	// 						// printf("%.3f\n", (proposed_x[k]-px));
-	// 						// printf("%.3f\n", (proposed_y[k]-py));							
-	// 					}// End of x,y bouncing
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished fixing x, y at boundaries.\n");
-	// 					#endif
+							if (py < PAD){
+								float tmp = PAD-py;
+								proposed_y[k] += 2 * tmp;
+							}
+							else{
+								if (py > (PAD + NUM_COLS- 1)){
+									float tmp = py - (PAD + NUM_COLS - 1);									
+									proposed_y[k] -= 2 * tmp;
+								}
+							}
+							// printf("%.3f\n", (proposed_x[k]-px));
+							// printf("%.3f\n", (proposed_y[k]-py));							
+						}// End of x,y bouncing
+						#if SERIAL_DEBUG
+							printf("Finished fixing x, y at boundaries.\n");
+						#endif
 
-	// 					// ------ compute flux distribution prior factor ------ //
-	// 					float factor = 0; // Prior factor 
-	// 					for (k=0; k< p_nobjs; k++){
-	// 						factor -= TRUE_ALPHA * log(proposed_flux[k]/current_flux[k]); // Accumulating factor											
-	// 					}
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished evaluating flux distribution prior factor.\n");
-	// 					#endif
+						// ------ compute flux distribution prior factor ------ //
+						float factor = 0; // Prior factor 
+						for (k=0; k< p_nobjs; k++){
+							factor -= TRUE_ALPHA * log(proposed_flux[k]/current_flux[k]); // Accumulating factor											
+						}
+						#if SERIAL_DEBUG
+							printf("Finished evaluating flux distribution prior factor.\n");
+						#endif
 
-	// 					// ----- Compute dX matrix for current and proposed, incorporating flux ----- //
-	// 					__attribute__((aligned(64))) int current_ix[MAXCOUNT_BLOCK];
-	// 					__attribute__((aligned(64))) int proposed_ix[MAXCOUNT_BLOCK];
-	// 					__attribute__((aligned(64))) int current_iy[MAXCOUNT_BLOCK];
-	// 					__attribute__((aligned(64))) int proposed_iy[MAXCOUNT_BLOCK];					
-	// 					#pragma omp simd
-	// 					for (k=0; k< p_nobjs; k++){
-	// 						current_ix[k] = ceil(current_x[k]);
-	// 						current_iy[k] = ceil(current_y[k]);
-	// 						proposed_ix[k] = ceil(proposed_x[k]);
-	// 						proposed_iy[k] = ceil(proposed_y[k]);
-	// 					} // end of ix, iy computation
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished computing ceil of proposed and current x, y.\n");
-	// 					#endif
+						// ----- Compute dX matrix for current and proposed, incorporating flux ----- //
+						__attribute__((aligned(64))) int current_ix[MAXCOUNT_BLOCK];
+						__attribute__((aligned(64))) int proposed_ix[MAXCOUNT_BLOCK];
+						__attribute__((aligned(64))) int current_iy[MAXCOUNT_BLOCK];
+						__attribute__((aligned(64))) int proposed_iy[MAXCOUNT_BLOCK];					
+						#pragma omp simd
+						for (k=0; k< p_nobjs; k++){
+							current_ix[k] = ceil(current_x[k]);
+							current_iy[k] = ceil(current_y[k]);
+							proposed_ix[k] = ceil(proposed_x[k]);
+							proposed_iy[k] = ceil(proposed_y[k]);
+						} // end of ix, iy computation
+						#if SERIAL_DEBUG
+							printf("Finished computing ceil of proposed and current x, y.\n");
+						#endif
 						
-	// 					// For vectorization, compute dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] and transpose to dX [MAXCOUNT, AVX_CACHE2]
-	// 					__attribute__((aligned(64))) float current_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK]; 
-	// 					__attribute__((aligned(64))) float proposed_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK];
+						// For vectorization, compute dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] and transpose to dX [MAXCOUNT, AVX_CACHE2]
+						__attribute__((aligned(64))) float current_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK]; 
+						__attribute__((aligned(64))) float proposed_dX_T[AVX_CACHE2 * MAXCOUNT_BLOCK];
 
-	// 					#pragma omp simd
-	// 					for (k=0; k < p_nobjs; k++){
-	// 						// Calculate dx, dy						
-	// 						float px = proposed_x[k];
-	// 						float py = proposed_y[k];
-	// 						float cx = current_x[k];
-	// 						float cy = current_y[k];
-	// 						float dpx = proposed_ix[k]-px;
-	// 						float dpy = proposed_iy[k]-py;
-	// 						float dcx = current_ix[k]-cx;
-	// 						float dcy = current_iy[k]-cy;
+						#pragma omp simd
+						for (k=0; k < p_nobjs; k++){
+							// Calculate dx, dy						
+							float px = proposed_x[k];
+							float py = proposed_y[k];
+							float cx = current_x[k];
+							float cy = current_y[k];
+							float dpx = proposed_ix[k]-px;
+							float dpy = proposed_iy[k]-py;
+							float dcx = current_ix[k]-cx;
+							float dcy = current_iy[k]-cy;
 
-	// 						// flux values
-	// 						float pf = proposed_flux[k];
-	// 						float cf = -current_flux[k];
+							// flux values
+							float pf = proposed_flux[k];
+							float cf = -current_flux[k];
 
-	// 						// Compute dX * f
-	// 						current_dX_T[k] = cf; // 1
-	// 						proposed_dX_T[k] = pf; //
-	// 						// dx
-	// 						current_dX_T[MAXCOUNT_BLOCK + k] = dcx * cf; 
-	// 						proposed_dX_T[MAXCOUNT_BLOCK + k] = dpx * pf; 
-	// 						// dy
-	// 						current_dX_T[MAXCOUNT_BLOCK * 2 + k] = dcy * cf;
-	// 						proposed_dX_T[MAXCOUNT_BLOCK * 2+ k] = dpy * pf; 
-	// 						// dx*dx
-	// 						current_dX_T[MAXCOUNT_BLOCK * 3 + k] = dcx * dcx * cf;
-	// 						proposed_dX_T[MAXCOUNT_BLOCK * 3+ k] = dpx * dpx * pf; 
-	// 						// dx*dy
-	// 						current_dX_T[MAXCOUNT_BLOCK * 4 + k] = dcx * dcy * cf;
-	// 						proposed_dX_T[MAXCOUNT_BLOCK * 4+ k] = dpx * dpy * pf; 
-	// 						// dy*dy
-	// 						current_dX_T[MAXCOUNT_BLOCK * 5 + k] = dcy * dcy * cf;
-	// 						proposed_dX_T[MAXCOUNT_BLOCK * 5+ k] = dpy * dpy * pf; 
-	// 						// dx*dx*dx
-	// 						current_dX_T[MAXCOUNT_BLOCK * 6 + k] = dcx * dcx * dcx * cf;
-	// 						proposed_dX_T[MAXCOUNT_BLOCK * 6+ k] = dpx * dpx * dpx * pf; 
-	// 						// dx*dx*dy
-	// 						current_dX_T[MAXCOUNT_BLOCK * 7 + k] = dcx * dcx * dcy * cf;
-	// 						proposed_dX_T[MAXCOUNT_BLOCK * 7+ k] = dpx * dpx * dpy * pf; 
-	// 						// dx*dy*dy
-	// 						current_dX_T[MAXCOUNT_BLOCK * 8 + k] = dcx * dcy * dcy * cf;
-	// 						proposed_dX_T[MAXCOUNT_BLOCK * 8+ k] = dpx * dpy * dpy * pf; 
-	// 						// dy*dy*dy
-	// 						current_dX_T[MAXCOUNT_BLOCK * 9 + k] = dcy * dcy * dcy * cf;
-	// 						proposed_dX_T[MAXCOUNT_BLOCK * 9+ k] = dpy * dpy * dpy * pf; 
-	// 					} // end of dX computation 
-	// 					#if SERIAL_DEBUG
-	// 						printf("Computed dX.\n");
-	// 					#endif
+							// Compute dX * f
+							current_dX_T[k] = cf; // 1
+							proposed_dX_T[k] = pf; //
+							// dx
+							current_dX_T[MAXCOUNT_BLOCK + k] = dcx * cf; 
+							proposed_dX_T[MAXCOUNT_BLOCK + k] = dpx * pf; 
+							// dy
+							current_dX_T[MAXCOUNT_BLOCK * 2 + k] = dcy * cf;
+							proposed_dX_T[MAXCOUNT_BLOCK * 2+ k] = dpy * pf; 
+							// dx*dx
+							current_dX_T[MAXCOUNT_BLOCK * 3 + k] = dcx * dcx * cf;
+							proposed_dX_T[MAXCOUNT_BLOCK * 3+ k] = dpx * dpx * pf; 
+							// dx*dy
+							current_dX_T[MAXCOUNT_BLOCK * 4 + k] = dcx * dcy * cf;
+							proposed_dX_T[MAXCOUNT_BLOCK * 4+ k] = dpx * dpy * pf; 
+							// dy*dy
+							current_dX_T[MAXCOUNT_BLOCK * 5 + k] = dcy * dcy * cf;
+							proposed_dX_T[MAXCOUNT_BLOCK * 5+ k] = dpy * dpy * pf; 
+							// dx*dx*dx
+							current_dX_T[MAXCOUNT_BLOCK * 6 + k] = dcx * dcx * dcx * cf;
+							proposed_dX_T[MAXCOUNT_BLOCK * 6+ k] = dpx * dpx * dpx * pf; 
+							// dx*dx*dy
+							current_dX_T[MAXCOUNT_BLOCK * 7 + k] = dcx * dcx * dcy * cf;
+							proposed_dX_T[MAXCOUNT_BLOCK * 7+ k] = dpx * dpx * dpy * pf; 
+							// dx*dy*dy
+							current_dX_T[MAXCOUNT_BLOCK * 8 + k] = dcx * dcy * dcy * cf;
+							proposed_dX_T[MAXCOUNT_BLOCK * 8+ k] = dpx * dpy * dpy * pf; 
+							// dy*dy*dy
+							current_dX_T[MAXCOUNT_BLOCK * 9 + k] = dcy * dcy * dcy * cf;
+							proposed_dX_T[MAXCOUNT_BLOCK * 9+ k] = dpy * dpy * dpy * pf; 
+						} // end of dX computation 
+						#if SERIAL_DEBUG
+							printf("Computed dX.\n");
+						#endif
 						
-	// 					// Transposing the matrices: dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] to dX [MAXCOUNT, AVX_CACHE2]
-	// 					// Combine current and proposed arrays. 
-	// 					__attribute__((aligned(64))) float dX[AVX_CACHE2 * MAXCOUNT_BLOCK * 2];					
-	// 					for (k=0; k<p_nobjs; k++){
-	// 						for (l=0; l<INNER; l++){
-	// 							dX[k*AVX_CACHE2+l] = current_dX_T[MAXCOUNT_BLOCK*l+k];
-	// 							dX[(p_nobjs+k)*AVX_CACHE2+l] = proposed_dX_T[MAXCOUNT_BLOCK*l+k];							
-	// 						}
-	// 					}// end of transpose
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished transposing dX.\n");
-	// 					#endif
+						// Transposing the matrices: dX^T [AVX_CACHE2, MAXCOUNT_BLOCK] to dX [MAXCOUNT, AVX_CACHE2]
+						// Combine current and proposed arrays. 
+						__attribute__((aligned(64))) float dX[AVX_CACHE2 * MAXCOUNT_BLOCK * 2];					
+						for (k=0; k<p_nobjs; k++){
+							for (l=0; l<INNER; l++){
+								dX[k*AVX_CACHE2+l] = current_dX_T[MAXCOUNT_BLOCK*l+k];
+								dX[(p_nobjs+k)*AVX_CACHE2+l] = proposed_dX_T[MAXCOUNT_BLOCK*l+k];							
+							}
+						}// end of transpose
+						#if SERIAL_DEBUG
+							printf("Finished transposing dX.\n");
+						#endif
 
-	// 					// Combine current and proposed arrays. 
-	// 					// Note that the integer x, y positions are in block position.
-	// 					__attribute__((aligned(64))) int ix[MAXCOUNT_BLOCK * 2];
-	// 					__attribute__((aligned(64))) int iy[MAXCOUNT_BLOCK * 2];
-	// 					int idx_row = ibx * BLOCK + offset_X + (BLOCK/2); // BLOCK/2 is for the padding.
-	// 					int idx_col = iby * BLOCK + offset_Y + (BLOCK/2);
-	// 					#pragma omp simd
-	// 					for (k=0; k<p_nobjs; k++){
-	// 						ix[k] = current_ix[k] - idx_row;
-	// 						ix[p_nobjs+k] = proposed_ix[k] - idx_row;
-	// 						iy[k] = current_iy[k] - idx_col;
-	// 						iy[p_nobjs+k] = proposed_iy[k] - idx_col;
-	// 					}
-	// 					// Since the arrays were coalesced
-	// 					p_nobjs *= 2;
-	// 					#if SERIAL_DEBUG
-	// 						printf("Finished computing ix, iy.\n");
-	// 					#endif
+						// Combine current and proposed arrays. 
+						// Note that the integer x, y positions are in block position.
+						__attribute__((aligned(64))) int ix[MAXCOUNT_BLOCK * 2];
+						__attribute__((aligned(64))) int iy[MAXCOUNT_BLOCK * 2];
+						int idx_row = ibx * BLOCK + offset_X + PAD; // BLOCK/2 is for the padding.
+						int idx_col = iby * BLOCK + offset_Y + PAD;
+						#pragma omp simd
+						for (k=0; k<p_nobjs; k++){
+							ix[k] = current_ix[k] - idx_row;
+							ix[p_nobjs+k] = proposed_ix[k] - idx_row;
+							iy[k] = current_iy[k] - idx_col;
+							iy[p_nobjs+k] = proposed_iy[k] - idx_col;
+						}
+						// Since the arrays were coalesced
+						p_nobjs *= 2;
+						#if SERIAL_DEBUG
+							printf("Finished computing ix, iy.\n");
+						#endif
 
-	// 					// #if DEBUG 
-	// 					// 	if (block_ID == BLOCK_ID_DEBUG){
-	// 					// 		for (k=0; k<p_nobjs; k++){
-	// 					// 			printf("%d, %d\n", ix[k], iy[k]);
-	// 					// 		}
-	// 					// 		printf("Printed all objs.\n\n");
-	// 					// 	}
-	// 					// #endif 
+						// #if DEBUG 
+						// 	if (block_ID == BLOCK_ID_DEBUG){
+						// 		for (k=0; k<p_nobjs; k++){
+						// 			printf("%d, %d\n", ix[k], iy[k]);
+						// 		}
+						// 		printf("Printed all objs.\n\n");
+						// 	}
+						// #endif 
 
 
 
