@@ -822,21 +822,21 @@ int main(int argc, char *argv[])
 	double dt_total, start_total, end_total; // Measure time taken for the whole run.	
 	dt = 0; // Time accumulator
 
-	// dt_total = -omp_get_wtime();
-	// printf("\nSampling starts here.\n");
-	// for (s=0; s<NSAMPLE; s++){
+	dt_total = -omp_get_wtime();
+	printf("\nSampling starts here.\n");
+	for (s=0; s<NSAMPLE; s++){
 
-	// 	// (Re) - initialize the acceptance rate array
-	// 	#pragma omp parallel for
-	// 	for (i=0; i<NUM_BLOCKS_TOTAL; i++){
-	// 		ACCEPT_RATE[i*AVX_CACHE2+BIT_ACCEPT] = 0;
-	// 		ACCEPT_RATE[i*AVX_CACHE2+BIT_REJECT] = 0;			
-	// 		ACCEPT_RATE[i*AVX_CACHE2+BIT_NOBJS_ACCEPT] = 0;
-	// 		ACCEPT_RATE[i*AVX_CACHE2+BIT_NOBJS_REJECT] = 0;	
-	// 	} 
+		// (Re) - initialize the acceptance rate array
+		#pragma omp parallel for
+		for (i=0; i<NUM_BLOCKS_TOTAL; i++){
+			ACCEPT_RATE[i*AVX_CACHE2+BIT_ACCEPT] = 0;
+			ACCEPT_RATE[i*AVX_CACHE2+BIT_REJECT] = 0;			
+			ACCEPT_RATE[i*AVX_CACHE2+BIT_NOBJS_ACCEPT] = 0;
+			ACCEPT_RATE[i*AVX_CACHE2+BIT_NOBJS_REJECT] = 0;	
+		} 
 
-	// 	start = omp_get_wtime(); // Timing starts here 		
-	// 	for (j=0; j<NLOOP; j++){
+		start = omp_get_wtime(); // Timing starts here 		
+		for (j=0; j<NLOOP; j++){
 	// 		#if SERIAL_DEBUG 
 	// 			printf("\n------ Start of iteration %d -------\n", j);
 	// 		#endif
@@ -1512,56 +1512,53 @@ int main(int argc, char *argv[])
 	// 			printf("-------- End of iteration %d --------\n\n", j);
 	// 		#endif
 
-	// 		end = omp_get_wtime();
-	// 	} // End of parallel iteration loop
-	// 	dt = end - start; // Compute time for NLOOP iterations
-	// 	dt_per_iter = (dt / (double) NLOOP) * (1e06);
+		} // End of parallel iteration loop
 
-	// 	#if COMPUTE_LOGLIKE
-	// 		double dt_loglike = -omp_get_wtime();
+		end = omp_get_wtime();		
+		dt = end - start; // Compute time for NLOOP iterations
+		dt_per_iter = (dt / (double) NLOOP) * (1e06);
 
-	// 		// ---- Calculate the likelihood based on the curret model ---- //
-	// 		double lnL = 0; // Loglike 
-	// 		// double model_sum = 0; // Sum of all model values w/o padding
-	// 		// double data_sum = 0; // Sum of all data values w/o padding
-	// 		#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL)//, model_sum, data_sum)
-	// 		for (i=BLOCK/2; i<((BLOCK/2)+DATA_WIDTH); i++){
-	// 			for (j=BLOCK/2; j<((BLOCK/2)+DATA_WIDTH); j++){
-	// 				int idx = i*PADDED_DATA_WIDTH+j;
-	// 				// Poisson likelihood
-	// 				float tmp = MODEL[idx];
-	// 				float f = log(tmp);
-	// 				float g = f * DATA[idx];
-	// 				lnL += g - tmp;
-	// 				// model_sum += tmp;
-	// 				// data_sum += DATA[idx];
-	// 			}// end of column loop
-	// 		} // End of row loop
-	// 		lnL *= GAIN; // Multiply by the gain factor
-	// 		dt_loglike += omp_get_wtime();
-	// 		// Save chain as default
-	// 		fwrite(&lnL, sizeof(double), 1, fplnL);		
-	// 	#endif
+		#if COMPUTE_LOGLIKE
+			double dt_loglike = -omp_get_wtime();
 
-	// 	#if SAVE_CHAIN
-	// 		double dt_savechain = -omp_get_wtime();
-	// 		#if SAVE_ONLY_LAST
-	// 			if (s==NSAMPLE-1){
-	// 		#endif 
-	// 		for (i=0; i<MAX_STARS; i++){
-	// 			int idx = i * AVX_CACHE;
-	// 			float x = OBJS[idx + BIT_X];
-	// 			float y = OBJS[idx + BIT_Y];
-	// 			float f = OBJS[idx + BIT_FLUX];
-	// 			fwrite(&x, sizeof(float), 1, fpx);
-	// 			fwrite(&y, sizeof(float), 1, fpy);
-	// 			fwrite(&f, sizeof(float), 1, fpf);				
-	// 		}
-	// 		#if SAVE_ONLY_LAST
-	// 			}
-	// 		#endif 
-	// 		dt_savechain += omp_get_wtime();
-	// 	#endif
+			// ---- Calculate the likelihood based on the curret model ---- //
+			double lnL = 0; // Loglike 
+			#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL)//, model_sum, data_sum)
+			for (i=PAD-1; i<(PAD+NUM_COLS); i++){
+				for (j=PAD-1; j<(PAD+NUM_COLS); j++){
+					int idx = i*PADDED_NUM_COLS+j;
+					// Poisson likelihood
+					float tmp = MODEL[idx];
+					float f = log(tmp);
+					float g = f * DATA[idx];
+					lnL += g - tmp;
+				}// end of column loop
+			} // End of row loop
+			lnL *= GAIN; // Multiply by the gain factor
+			dt_loglike += omp_get_wtime();
+			// Save chain as default
+			fwrite(&lnL, sizeof(double), 1, fplnL);		
+		#endif
+
+		#if SAVE_CHAIN
+			double dt_savechain = -omp_get_wtime();
+			#if SAVE_ONLY_LAST
+				if (s==NSAMPLE-1){
+			#endif 
+			for (i=0; i<MAX_STARS; i++){
+				int idx = i * AVX_CACHE;
+				float x = OBJS[idx + BIT_X];
+				float y = OBJS[idx + BIT_Y];
+				float f = OBJS[idx + BIT_FLUX];
+				fwrite(&x, sizeof(float), 1, fpx);
+				fwrite(&y, sizeof(float), 1, fpy);
+				fwrite(&f, sizeof(float), 1, fpf);				
+			}
+			#if SAVE_ONLY_LAST
+				}
+			#endif 
+			dt_savechain += omp_get_wtime();
+		#endif
 
 	// 	// After a certain number of iterations, periodically recompute the MODEL
 	// 	// Re-cycle model initialization variables
@@ -1695,64 +1692,64 @@ int main(int argc, char *argv[])
 	// 		dt_recompute += omp_get_wtime();
 	// 	#endif // End of model recompute			
 
-	// 	#if SAVE_MODEL // Saving the MODEL after update
-	// 		if (s == (NSAMPLE-1)) { fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL); }
-	// 		// conditional as a safe measure to memory overflow
-	// 	#endif
+		#if SAVE_MODEL // Saving the MODEL after update
+			if (s == (NSAMPLE-1)) { fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL); }
+			// conditional as a safe measure to memory overflow
+		#endif
 
-	// 	#if SAVE_ACCEPTANCE_RATE
-	// 		// Save the acceptance rate. Possibly large matrix
-	// 		double dt_save_accept = -omp_get_wtime();
-	// 		fwrite(&ACCEPT_RATE, sizeof(int), size_of_ACCEPT_RATE, fpACCEPT_RATE);
-	// 		dt_save_accept += omp_get_wtime();
-	// 	#endif			
+		#if SAVE_ACCEPTANCE_RATE
+			// Save the acceptance rate. Possibly large matrix
+			double dt_save_accept = -omp_get_wtime();
+			fwrite(&ACCEPT_RATE, sizeof(int), size_of_ACCEPT_RATE, fpACCEPT_RATE);
+			dt_save_accept += omp_get_wtime();
+		#endif			
 
-	// 	#if PRINT_PERF
-	// 		printf("Sample %d: T_parallel (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
-	// 		printf("Time for %d iterations (s): %.3f\n", NLOOP, dt);
-	// 		#if SAVE_CHAIN
-	// 			printf("Time for saving the sample (us): %.3f\n", dt_savechain * 1e06);
-	// 		#endif			
-	// 		#if COMPUTE_LOGLIKE
-	// 			printf("Time for computing loglike (us): %.3f\n", dt_loglike * 1e06);
-	// 			printf("Current lnL: %.3f\n", lnL);
-	// 			// printf("Current Model sum: %.3f\n", model_sum);
-	// 			// printf("Current Data sum: %.3f\n", data_sum);
-	// 		#endif
-	// 		#if PERIODIC_MODEL_RECOMPUTE
-	// 			printf("Time for recomputing the whole image (us): %.3f\n", dt_recompute * 1e06);				
-	// 		#endif
-	// 		#if SAVE_ACCEPTANCE_RATE
-	// 			printf("Time for saving acceptance rate (us): %.3f\n", dt_save_accept * 1e06);
-	// 		#endif
+		#if PRINT_PERF
+			printf("Sample %d: T_parallel (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
+			printf("Time for %d iterations (s): %.3f\n", NLOOP, dt);
+			#if SAVE_CHAIN
+				printf("Time for saving the sample (us): %.3f\n", dt_savechain * 1e06);
+			#endif			
+			#if COMPUTE_LOGLIKE
+				printf("Time for computing loglike (us): %.3f\n", dt_loglike * 1e06);
+				printf("Current lnL: %.3f\n", lnL);
+				// printf("Current Model sum: %.3f\n", model_sum);
+				// printf("Current Data sum: %.3f\n", data_sum);
+			#endif
+			#if PERIODIC_MODEL_RECOMPUTE
+				printf("Time for recomputing the whole image (us): %.3f\n", dt_recompute * 1e06);				
+			#endif
+			#if SAVE_ACCEPTANCE_RATE
+				printf("Time for saving acceptance rate (us): %.3f\n", dt_save_accept * 1e06);
+			#endif
 
-	// 		int num_accept = 0; // Counter for the total number of accept
-	// 		int num_reject = 0;
-	// 		int num_objs_accept = 0; // Counter for the total number of objects when proposal is accepted
-	// 		int num_objs_reject = 0; // " is rejected
-	// 		for (i=0; i<NUM_BLOCKS_TOTAL; i++){
-	// 			int idx = i*AVX_CACHE2;
-	// 			num_accept += ACCEPT_RATE[idx+BIT_ACCEPT];				
-	// 			num_reject += ACCEPT_RATE[idx+BIT_REJECT];								
-	// 			num_objs_accept += ACCEPT_RATE[idx+BIT_NOBJS_ACCEPT];
-	// 			num_objs_reject += ACCEPT_RATE[idx+BIT_NOBJS_REJECT];
-	// 		}
-	// 		float num_serial_iter = (float) (num_accept + num_reject); // Not the same as NLOOP * NUM_BLOCKS_TOTAL
-	// 		printf("Global acceptance rate: %.2f pcnt\n", 100.*num_accept/num_serial_iter);
-	// 		printf("Avg. num objs in proposal: %.2f\n", (num_objs_accept+num_objs_reject)/ num_serial_iter);
-	// 		printf("Avg. num objs when accepted: %.2f\n", num_objs_accept/ (float) num_accept);			
-	// 		printf("Avg. num objs when rejected: %.2f\n", num_objs_reject/((float) num_reject));						
-	// 		printf("Fraction of serial iterations with objects: %.2f pcnt\n", 100.*num_serial_iter/((float) (NLOOP*NUM_BLOCKS_TOTAL)));
-	// 		printf("\n");				
-	// 	#endif	
+			int num_accept = 0; // Counter for the total number of accept
+			int num_reject = 0;
+			int num_objs_accept = 0; // Counter for the total number of objects when proposal is accepted
+			int num_objs_reject = 0; // " is rejected
+			for (i=0; i<NUM_BLOCKS_TOTAL; i++){
+				int idx = i*AVX_CACHE2;
+				num_accept += ACCEPT_RATE[idx+BIT_ACCEPT];				
+				num_reject += ACCEPT_RATE[idx+BIT_REJECT];								
+				num_objs_accept += ACCEPT_RATE[idx+BIT_NOBJS_ACCEPT];
+				num_objs_reject += ACCEPT_RATE[idx+BIT_NOBJS_REJECT];
+			}
+			float num_serial_iter = (float) (num_accept + num_reject); // Not the same as NLOOP * NUM_BLOCKS_TOTAL
+			printf("Global acceptance rate: %.2f pcnt\n", 100.*num_accept/num_serial_iter);
+			printf("Avg. num objs in proposal: %.2f\n", (num_objs_accept+num_objs_reject)/ num_serial_iter);
+			printf("Avg. num objs when accepted: %.2f\n", num_objs_accept/ (float) num_accept);			
+			printf("Avg. num objs when rejected: %.2f\n", num_objs_reject/((float) num_reject));						
+			printf("Fraction of serial iterations with objects: %.2f pcnt\n", 100.*num_serial_iter/((float) (NLOOP*NUM_BLOCKS_TOTAL)));
+			printf("\n");				
+		#endif	
 
-	// } // End of sampling looop
-	// printf("Sampling ended.\n");
+	} // End of sampling looop
+	printf("Sampling ended.\n");
 
-	// // Total time taken
-	// dt_total += omp_get_wtime();
-	// printf("Total time taken (s): %.2f\n\n", dt_total);
-	// // Re-print basic parameters of the problem.
+	// Total time taken
+	dt_total += omp_get_wtime();
+	printf("Total time taken (s): %.2f\n\n", dt_total);
+	// Re-print basic parameters of the problem.
 
 	
 
