@@ -77,7 +77,7 @@
 #define TRUE_BACK 179.0
 #define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
 #define FLUX_UPPER_LIMIT 1000.0 // If the proposed flux values become greater than this, then set it to this value.
-#define STAR_DENSITY_PER_PIXEL (0.1 )  // 102.4 x (36/1024) ~ 4
+#define STAR_DENSITY_PER_PIXEL (0.1)  // 102.4 x (36/1024) ~ 4
 #define NUM_TRUE_STARS ((int) (STAR_DENSITY_PER_PIXEL * IMAGE_SIZE)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define MAX_STARS ((int) ((NUM_TRUE_STARS))) // The number of stars to use to model the image.
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
@@ -837,37 +837,38 @@ int main(int argc, char *argv[])
 
 		start = omp_get_wtime(); // Timing starts here 		
 		for (j=0; j<NLOOP; j++){
-	// 		#if SERIAL_DEBUG 
-	// 			printf("\n------ Start of iteration %d -------\n", j);
-	// 		#endif
+			#if SERIAL_DEBUG 
+				printf("\n------ Start of iteration %d -------\n", j);
+			#endif
 
-	// 		// ------- Generating offsets ------ //
-	// 		// Note that image is padded with BLOCK/2 on every side.
-	// 		// The mesh size is the same as the image size. It's shifted in each iteration.
-	// 		// Positive offset corresponds to adding offset_X, offset_Y for getting the 
-	// 		// relevant DATA and MODEL elements but subtracting when computing the block id.
-	// 		#if OFFSET
-	// 			int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
-	// 			int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
-	// 		#else
-	// 			int offset_X = 0; 
-	// 			int offset_Y = 0; 
-	// 		#endif 
-	// 		#if DEBUG
-	// 			printf("Offset X, Y: %d, %d\n\n", offset_X, offset_Y);
-	// 		#endif
-	// 		#if SERIAL_DEBUG
-	// 			printf("Generated offsets.\n");
-	// 		#endif
+			// ------- Generating offsets ------ //
+			// Note that image is padded with BLOCK/2 on every side.
+			// The mesh size is the same as the image size. It's shifted in each iteration.
+			// Positive offset corresponds to adding offset_X, offset_Y for getting the 
+			// relevant DATA and MODEL elements but subtracting when computing the block id.
+			#if OFFSET
+				int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+				int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+			#else
+				int offset_X = 0; 
+				int offset_Y = 0; 
+			#endif 
+			#if DEBUG
+				printf("Offset X, Y: %d, %d\n\n", offset_X, offset_Y);
+			#endif
+			#if SERIAL_DEBUG
+				printf("Generated offsets.\n");
+			#endif
 
-	// 		// ------ Set the counter to zero ------ //
-	// 		#pragma omp parallel for simd default(none) shared(BLOCK_COUNT_THREAD)
-	// 		for (i=0; i < NUM_THREADS * NUM_BLOCKS_TOTAL; i++){
-	// 			BLOCK_COUNT_THREAD[i] = 0;
-	// 		}
-	// 		#if SERIAL_DEBUG
-	// 			printf("Set the counters to zero.\n");
-	// 		#endif
+			// ------ Set the counter to zero ------ //
+			#pragma omp parallel for simd default(none) shared(BLOCK_COUNT_THREAD)
+			for (i=0; i < NUM_THREADS * NUM_BLOCKS_TOTAL; i++){
+				BLOCK_COUNT_THREAD[i] = 0;
+			}
+			#if SERIAL_DEBUG
+				printf("Set the counters to zero.\n");
+			#endif
+				
 	// 		// ------ Hash objects into blocks ----- //
 	// 		// For each block, allocate an array of length MAXCOUNT * numthreads (OBJS_HASH)
 	// 		// Within each MAXCOUNT chunk, save the indices found by a particular thread.
