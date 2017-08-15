@@ -59,8 +59,8 @@
 #define MARGIN2 NPIX_div2 // Half of PSF
 #define REGION 12// Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
-#define NUM_BLOCKS_IN_X ((int) round((NUM_ROWS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1)
-#define NUM_BLOCKS_IN_Y ((int) round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1)
+#define NUM_BLOCKS_IN_X ((int) (round((NUM_ROWS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
+#define NUM_BLOCKS_IN_Y ((int) (round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_IN_X * NUM_BLOCKS_IN_Y)
 #define MESH_SIZE (NUM_BLOCKS_TOTAL * BLOCK * BLOCK)
 
@@ -104,7 +104,7 @@
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define MODEL_EVAL_STEP 1 // If 0, model eval step is disabled.
 #define COMPUTE_LOGLIKE_LOCAL 1// If 0, a random integer is used for the log likelihood in each block.
-#define BLOCK_ID_DEBUG 2
+#define BLOCK_ID_DEBUG 1
 #define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
@@ -122,8 +122,8 @@
 	// One thread, one block, multiplie iterations.
 	// One thread, multiple blocks, multiplie iterations.
 	// Multiple threads, multiple blocks, multiple iterations.
-	#define NLOOP 1000 // Number of times to loop before sampling
-	#define NSAMPLE 2 // Numboer samples to collect
+	#define NLOOP 1 // Number of times to loop before sampling
+	#define NSAMPLE 1 // Numboer samples to collect
 #else // If in normal mode
 	#define NLOOP 1// Number of times to loop before sampling
 	#define NSAMPLE 1// Numboer samples to collect
@@ -868,100 +868,101 @@ int main(int argc, char *argv[])
 			#if SERIAL_DEBUG
 				printf("Set the counters to zero.\n");
 			#endif
-				
-	// 		// ------ Hash objects into blocks ----- //
-	// 		// For each block, allocate an array of length MAXCOUNT * numthreads (OBJS_HASH)
-	// 		// Within each MAXCOUNT chunk, save the indices found by a particular thread.
-	// 		// All the threads take one obj at a time and determine its block id 
-	// 		// given the offset. If the objects are within the proposal region,
-	// 		// then update the corresponding OBJS_HASH array element. 
-	// 		// Otherwise, do nothing.
-	// 		#pragma omp parallel default(none) shared(BLOCK_COUNT_THREAD, OBJS, OBJS_HASH, offset_X, offset_Y)
-	// 		{
-	// 			int i;
-	// 			#pragma omp for
-	// 			for (i=0; i<MAX_STARS; i++){
-	// 				int t_id = omp_get_thread_num(); // Get thread number			
 
-	// 				// Get x, y of the object.
-	// 				// Offset is for the mesh offset.
-	// 				int idx = i*AVX_CACHE;
-	// 				float x_float = OBJS[idx+BIT_X];
-	// 				float y_float = OBJS[idx+BIT_Y];
-	// 				int x = floor(x_float - offset_X - (BLOCK/2));
-	// 				int y = floor(y_float - offset_Y - (BLOCK/2));
+			// ------ Hash objects into blocks ----- //
+			// For each block, allocate an array of length MAXCOUNT * numthreads (OBJS_HASH)
+			// Within each MAXCOUNT chunk, save the indices found by a particular thread.
+			// All the threads take one obj at a time and determine its block id 
+			// given the offset. If the objects are within the proposal region,
+			// then update the corresponding OBJS_HASH array element. 
+			// Otherwise, do nothing.
+			#pragma omp parallel default(none) shared(BLOCK_COUNT_THREAD, OBJS, OBJS_HASH, offset_X, offset_Y)
+			{
+				int i;
+				#pragma omp for
+				for (i=0; i<MAX_STARS; i++){
+					int t_id = omp_get_thread_num(); // Get thread number			
 
-	// 				int b_idx = x / BLOCK;
-	// 				int b_idy = y / BLOCK;
-	// 				int x_in_block = x - b_idx * BLOCK;
-	// 				int y_in_block = y - b_idy * BLOCK;
-	// 				// Check if the object falls in the right region.
-	// 				// If yes, update.
-	// 				if ( (b_idx < NUM_BLOCKS_PER_DIM) & (b_idy < NUM_BLOCKS_PER_DIM) &
-	// 					(b_idx > -1) & (b_idy > -1) &
-	// 					(x_in_block >= (MARGIN1+MARGIN2)) &  (y_in_block >= (MARGIN1+MARGIN2)) &
-	// 					(x_in_block < (MARGIN1+MARGIN2+REGION)) & (y_in_block < (MARGIN1+MARGIN2+REGION)))
-	// 				{
-	// 					int b_id = (b_idx * NUM_BLOCKS_PER_DIM) + b_idy; // Compute block id of the object.
-	// 					OBJS_HASH[MAXCOUNT * (NUM_THREADS * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
-	// 					BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]+=1; // Update the counts
-	// 					#if DEBUG
-	// 						if (b_id == BLOCK_ID_DEBUG)
-	// 						{
-	// 							printf("OBJS number: %d\n", i);							
-	// 							printf("OBJS_BID: %d\n", b_id);									
-	// 							printf("Block id x,y: %d, %d\n", b_idx, b_idy);													
-	// 							// printf("tid: %d\n", t_id);
-	// 							printf("Block count: %d\n", BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]);
-	// 							printf("x,y before adjustment: %.1f, %.1f\n", x_float, y_float);
-	// 							printf("x,y after adjustment: %d, %d\n", x, y);
-	// 							printf("x,y in block: %d, %d\n", x_in_block, y_in_block);
-	// 							printf("\n");							
-	// 						}
-	// 					#endif
-	// 				}//	
-	// 			}
-	// 		}// End of parallel region
-	// 		#if SERIAL_DEBUG
-	// 			printf("Hashed objects into the current proposal regions.\n");
+					// Get x, y of the object.
+					// Offset is for the mesh offset.
+					int idx = i*AVX_CACHE;
+					float x_float = OBJS[idx+BIT_X];
+					float y_float = OBJS[idx+BIT_Y];
+					int x = floor(x_float - offset_X - PAD);
+					int y = floor(y_float - offset_Y - PAD);
 
-	// 		printf("Start computing step.\n");
-	// 		#endif 
-	// 		// ----- Model evaluation, followed by acceptance or rejection. ----- //
-	// 		// Iterating through all the blocks.
-	// 		// IMPORTANT: X is the row direction and Y is the column direction.
-	// 		time_seed = (int) (time(NULL)) * rand();	
-	// 		int ibx, iby; // Block idx	
-	// 		#pragma omp parallel for collapse(2) default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A, ACCEPT_RATE) \
-	// 			private(ibx, iby, k, l, m, jstar, istar, xx, yy)
-	// 		for (ibx=0; ibx < NUM_BLOCKS_PER_DIM; ibx+=INCREMENT){ // Row direction				
-	// 			for (iby=0; iby < NUM_BLOCKS_PER_DIM; iby+=INCREMENT){ // Column direction
-	// 				int k, l, m; // private loop variables
-	// 				int block_ID = (ibx * NUM_BLOCKS_PER_DIM) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
-	// 				int t_id = omp_get_thread_num();
+					int b_idx = x / BLOCK;
+					int b_idy = y / BLOCK;
+					int x_in_block = x - b_idx * BLOCK;
+					int y_in_block = y - b_idy * BLOCK;
+					// Check if the object falls in the right region.
+					// If yes, update.
+					if ( (b_idx < NUM_BLOCKS_IN_X) & (b_idy < NUM_BLOCKS_IN_Y) &
+						(b_idx > -1) & (b_idy > -1) &
+						(x_in_block >= (MARGIN1+MARGIN2)) &  (y_in_block >= (MARGIN1+MARGIN2)) &
+						(x_in_block < (MARGIN1+MARGIN2+REGION)) & (y_in_block < (MARGIN1+MARGIN2+REGION)))
+					{
+						int b_id = (b_idx * NUM_BLOCKS_IN_Y) + b_idy; // Compute block id of the object.
+						OBJS_HASH[MAXCOUNT * (NUM_THREADS * b_id + t_id) + BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]] = i; // Deposit the object number.
+						BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]+=1; // Update the counts
+						#if DEBUG
+							if (b_id == BLOCK_ID_DEBUG)
+							{
+								printf("OBJS number: %d\n", i);							
+								printf("OBJS_BID: %d\n", b_id);									
+								printf("Block id x,y: %d, %d\n", b_idx, b_idy);													
+								// printf("tid: %d\n", t_id);
+								printf("Block count: %d\n", BLOCK_COUNT_THREAD[b_id + NUM_BLOCKS_TOTAL * t_id]);
+								printf("x,y before adjustment: %.1f, %.1f\n", x_float, y_float);
+								printf("x,y after adjustment: %d, %d\n", x, y);
+								printf("x,y in block: %d, %d\n", x_in_block, y_in_block);
+								printf("\n");							
+							}
+						#endif
+					}//	
+				}
+			}// End of parallel region
+			#if SERIAL_DEBUG
+				printf("Hashed objects into the current proposal regions.\n");
+				printf("Start computing step.\n");
+			#endif 
 
-	// 				#if SERIAL_DEBUG
-	// 					printf("\nStart of Block %d computation.\n", block_ID);
-	// 				#endif
+			// ----- Model evaluation, followed by acceptance or rejection. ----- //
+			// Iterating through all the blocks.
+			// IMPORTANT: X is the row direction and Y is the column direction.
+			// time_seed = (int) (time(NULL)) * rand();	
+			// int ibx, iby; // Block idx	
+			// #pragma omp parallel for default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A, ACCEPT_RATE) \
+			// 	private(ibx, iby, k, l, m, jstar, istar, xx, yy) collapse(2)
+			// for (ibx=0; ibx < NUM_BLOCKS_IN_X; ibx+=INCREMENT){ // Row direction				
+			// 	for (iby=0; iby < NUM_BLOCKS_IN_Y; iby+=INCREMENT){ // Column direction
+			// 		int k, l, m; // private loop variables
+			// 		int block_ID = (ibx * NUM_BLOCKS_IN_Y) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.
+			// 		int t_id = omp_get_thread_num();
 
-	// 				// ----- Pick objs that lie in the proposal region ----- //
-	// 				int p_nobjs=0; // Number of objects within the proposal region of the block
-	// 				__attribute__((aligned(64))) int p_objs_idx[MAXCOUNT_BLOCK]; // The index of objects within the proposal region of the block
-	// 											// Necessary to keep in order to update after the iteration 
-	// 											// We anticipate maximum of MAXCOUNT_BLOCK number of objects in the region.
-	// 				__attribute__((aligned(64))) float p_objs[AVX_CACHE * MAXCOUNT_BLOCK]; //Array for the object information.
+			// 		#if SERIAL_DEBUG
+			// 			printf("\nStart of Block %d computation.\n", block_ID);
+			// 		#endif
 
-	// 				// Sift through the relevant regions of OBJS_HASH to find objects that belong to the
-	// 				// proposal region of the block.
-	// 				int start_idx = block_ID * MAXCOUNT * NUM_THREADS;
-	// 				for (k=0; k < (MAXCOUNT * NUM_THREADS); k++){
-	// 					int tmp = OBJS_HASH[start_idx+k]; // See if an object is deposited.
-	// 					if (tmp>-1){ // if yes, then collect it.
-	// 						p_objs_idx[p_nobjs] = tmp;
-	// 						p_nobjs++;
-	// 						OBJS_HASH[start_idx+k] = -1; //This way, the block needs not be reset.
-	// 					}
-	// 				}
+			// 		// ----- Pick objs that lie in the proposal region ----- //
+			// 		int p_nobjs=0; // Number of objects within the proposal region of the block
+			// 		__attribute__((aligned(64))) int p_objs_idx[MAXCOUNT_BLOCK]; // The index of objects within the proposal region of the block
+			// 									// Necessary to keep in order to update after the iteration 
+			// 									// We anticipate maximum of MAXCOUNT_BLOCK number of objects in the region.
+			// 		__attribute__((aligned(64))) float p_objs[AVX_CACHE * MAXCOUNT_BLOCK]; //Array for the object information.
+
+			// 		// Sift through the relevant regions of OBJS_HASH to find objects that belong to the
+			// 		// proposal region of the block.
+			// 		int start_idx = 0;//block_ID * MAXCOUNT * NUM_THREADS;
+			// 		for (k=0; k < (MAXCOUNT * NUM_THREADS); k++){
+			// 			int tmp = OBJS_HASH[start_idx+k]; // See if an object is deposited.
+			// 			if (tmp>-1){ // if yes, then collect it.
+			// 				p_objs_idx[p_nobjs] = tmp;
+			// 				p_nobjs++;
+			// 				OBJS_HASH[start_idx+k] = -1; //This way, the block needs not be reset.
+			// 			}
+			// 		}
+			// 	}}
 
 	// 				#if SERIAL_DEBUG
 	// 					printf("Number of objects in this block: %d\n", p_nobjs);
@@ -1497,21 +1498,20 @@ int main(int argc, char *argv[])
 
 	// 			#endif // End of model eval step
 
-	// 			#if SERIAL_DEBUG
-	// 				printf("End of Block %d computation.\n\n", block_ID);
-	// 			#endif
-	// 			} // End of y block loop
-	// 		} // End of x block loop // End of paralell region
+			// 	#if SERIAL_DEBUG
+			// 		printf("End of Block %d computation.\n\n", block_ID);
+			// 	#endif
+			// 	} // End of y block loop
+			// } // End of x block loop // End of paralell region
 
-	// 		// Print the x, y, f of a particular particle
+			// Print the x, y, f of a particular particle
+			// int idx_ref = (MAX_STARS-1) * AVX_CACHE;
+			// printf("%d: (x, y, f) = (%.3f,  %.3f,  %.3f)\n", j, OBJS[idx_ref + BIT_X], OBJS[idx_ref + BIT_Y], OBJS[idx_ref + BIT_FLUX]);
+			// printf("\n");
 
-	// 		// int idx_ref = (MAX_STARS-1) * AVX_CACHE;
-	// 		// printf("%d: (x, y, f) = (%.3f,  %.3f,  %.3f)\n", j, OBJS[idx_ref + BIT_X], OBJS[idx_ref + BIT_Y], OBJS[idx_ref + BIT_FLUX]);
-	// 		// printf("\n");
-
-	// 		#if SERIAL_DEBUG
-	// 			printf("-------- End of iteration %d --------\n\n", j);
-	// 		#endif
+			#if SERIAL_DEBUG
+				printf("-------- End of iteration %d --------\n\n", j);
+			#endif
 
 		} // End of parallel iteration loop
 
@@ -1694,7 +1694,7 @@ int main(int argc, char *argv[])
 	// 	#endif // End of model recompute			
 
 		#if SAVE_MODEL // Saving the MODEL after update
-			if (s == (NSAMPLE-1)) { fwrite(&MODEL, sizeof(float), IMAGE_SIZE, fp_MODEL); }
+			if (s == (NSAMPLE-1)) { fwrite(&MODEL, sizeof(float), PADDED_IMAGE_SIZE, fp_MODEL); }
 			// conditional as a safe measure to memory overflow
 		#endif
 
