@@ -68,7 +68,7 @@
 // The mesh has to be large enough so that the image lies within the uniform coverage region.
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 44 // Core proposal region 
+#define REGION 12 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_IN_X ((int) (round((NUM_ROWS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_IN_Y ((int) (round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
@@ -84,10 +84,10 @@
 
 // ---- Global parameters ---- // 
 #define LINEAR_FLUX_STEPSIZE 100.0
-#define GAIN 5.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
-#define TRUE_MIN_FLUX 250.0
+#define GAIN 1.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
+#define TRUE_MIN_FLUX 1250.0
 #define TRUE_ALPHA 2.00
-#define TRUE_BACK 179.0
+#define TRUE_BACK 1800.0
 #define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
 #define FLUX_UPPER_LIMIT 1000.0 // If the proposed flux values become greater than this, then set it to this value.
 #define STAR_DENSITY_PER_PIXEL (0.1)  // 102.4 x (36/1024) ~ 4
@@ -108,7 +108,7 @@
 #define BIT_FLUX 2
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 1 // Number of threads used for execution.
+#define NUM_THREADS 4 // Number of threads used for execution.
 #define POSITIVE_PSF 1	// If 1, whenever computed PSF is negative, clip it at 0.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
@@ -135,8 +135,8 @@
 	#define NSAMPLE 1 // Numboer samples to collect
 	#define BLOCK_ID_DEBUG 0
 #else // If in normal mode
-	#define NLOOP 1// Number of times to loop before sampling
-	#define NSAMPLE 100// Numboer samples to collect
+	#define NLOOP 1000// Number of times to loop before sampling
+	#define NSAMPLE 400// Numboer samples to collect
 #endif 
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
@@ -365,8 +365,8 @@ int main(int argc, char *argv[])
 				OBJS[idx+BIT_Y] = BLOCK/2; // y
 				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 500.;
 			#else
-				OBJS[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_ROWS+PAD; // x
-				OBJS[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_COLS+PAD; // y
+				OBJS[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * (NUM_ROWS-1)+PAD; // x
+				OBJS[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * (NUM_COLS-1)+PAD; // y
 				float u = rand_r(&p_seed)/((float) RAND_MAX + 1.0);
 				#if SET_UPPER_FLUX_LIMIT
 					OBJS[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
@@ -563,8 +563,8 @@ int main(int argc, char *argv[])
 					OBJS_TRUE[idx+BIT_Y] = BLOCK/2; // y
 					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5000.0; // Constant flux values for all the stars. Still an option.
 				#else
-					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * NUM_COLS + PAD; // x
-					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * NUM_ROWS + PAD; // y
+					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * (NUM_COLS-1) + PAD; // x
+					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * (NUM_ROWS-1) + PAD; // y
 					float u = rand_r(&p_seed)/((float) RAND_MAX + 1.0);					
 					#if SET_UPPER_FLUX_LIMIT
 						OBJS_TRUE[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
@@ -1365,7 +1365,7 @@ int main(int argc, char *argv[])
 							int idx_x = ix[k]; // Note that ix and iy are already within block position.
 							int idx_y = iy[k];
 							#if SERIAL_DEBUG
-								printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_row, idx_col);
+								printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
 							#endif
 							
 							#if POSITIVE_PSF
