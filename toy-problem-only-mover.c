@@ -37,7 +37,7 @@
 #define INNER 10
 #define AVX_CACHE2 16
 #define AVX_CACHE AVX_CACHE2
-#define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
+#define MAXCOUNT_BLOCK 1024 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
 							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
 #define INCREMENT 1 // Block loop increment
@@ -54,7 +54,7 @@
 // Note that the image size is not a simple multiple of the size of block being used.
 // NUM_ROWS and NUM_COLS must be even numbers.
 // The block mesh's center will conincide with the center of the image. 
-#define NUM_ROWS 64
+#define NUM_ROWS 256
 #define NUM_COLS NUM_ROWS
 #define IMAGE_SIZE (NUM_ROWS * NUM_COLS)
 #define PAD AVX_CACHE2
@@ -68,17 +68,17 @@
 // The mesh has to be large enough so that the image lies within the uniform coverage region.
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 12// Core proposal region 
+#define REGION 68 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_IN_X ((int) (round((NUM_ROWS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_IN_Y ((int) (round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_IN_X * NUM_BLOCKS_IN_Y)
 #define MESH_SIZE (NUM_BLOCKS_TOTAL * BLOCK * BLOCK)
-#define GLOBAL_OFFSET_X ((int) (NUM_ROWS-NUM_BLOCKS_IN_X * BLOCK)/2) // Global offsets for making the centers of image and block mesh conincide
-#define GLOBAL_OFFSET_Y ((int) (NUM_COLS-NUM_BLOCKS_IN_Y * BLOCK)/2)
+#define GLOBAL_OFFSET_X ((int) (NUM_ROWS - (NUM_BLOCKS_IN_X * BLOCK))/2) // Global offsets for making the centers of image and block mesh conincide
+#define GLOBAL_OFFSET_Y ((int) (NUM_COLS - (NUM_BLOCKS_IN_Y * BLOCK))/2)
 
 // ---- Mock generation ----- //
-#define GENERATE_NEW_MOCK 1 // If 1, generate mock data based on the global parameters 
+#define GENERATE_NEW_MOCK 0 // If 1, generate mock data based on the global parameters 
 							// below and using the image dimensions above. 
 							// If 0, then use the user provided data.
 
@@ -93,7 +93,6 @@
 #define STAR_DENSITY_PER_PIXEL (0.1)  // 102.4 x (36/1024) ~ 4
 #define NUM_TRUE_STARS ((int) (STAR_DENSITY_PER_PIXEL * IMAGE_SIZE)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define MAX_STARS ((int) ((NUM_TRUE_STARS))) // The number of stars to use to model the image.
-#define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 
 
 // ----- Bits used for arrays ---- //
@@ -107,8 +106,6 @@
 #define BIT_X 0
 #define BIT_Y 1
 #define BIT_FLUX 2
-#define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
-#define FREEZE_F 0 // If 1, free the flux
 
 // ----- Program run parameters ----- // 
 #define NUM_THREADS 4 // Number of threads used for execution.
@@ -118,7 +115,7 @@
 #define MODEL_EVAL_STEP 1 // If 0, model eval step is disabled.
 #define COMPUTE_LOGLIKE_LOCAL 1// If 0, a random integer is used for the log likelihood in each block.
 #define BLOCK_ID_DEBUG 1
-#define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
+#define OFFSET 0 // If 1, blocks are offset by a random amount in each iteration.
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
@@ -136,11 +133,15 @@
 	// One thread, multiple blocks, multiplie iterations.
 	// Multiple threads, multiple blocks, multiple iterations.
 	#define NLOOP 1 // Number of times to loop before sampling
-	#define NSAMPLE 1 // Numboer samples to collect
+	#define NSAMPLE 100 // Numboer samples to collect
 #else // If in normal mode
-	#define NLOOP 1000// Number of times to loop before sampling
-	#define NSAMPLE 400// Numboer samples to collect
+	#define NLOOP 10// Number of times to loop before sampling
+	#define NSAMPLE 50// Numboer samples to collect
 #endif 
+#define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
+#define FREEZE_XY 1 // If 1, freeze the X, Y positins of the objs.
+#define FREEZE_F 1 // If 1, free the flux
+
 
 
 
@@ -271,6 +272,7 @@ int main(int argc, char *argv[])
 	printf("Number of blocks in row (x) direction: %d\n", NUM_BLOCKS_IN_X);
 	printf("Number of blocks in col (y) direction: %d\n", NUM_BLOCKS_IN_Y);	
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_TOTAL);
+	printf("Global offset X/Y: %d, %d\n", GLOBAL_OFFSET_X, GLOBAL_OFFSET_Y);
 	printf("Number of stars to be used to fit the data: %d\n", MAX_STARS);	
 	printf("Mesh linear width: %.2f\n", sqrt((float) MESH_SIZE));
 	printf("Image linear width: %.2f\n", sqrt((float) IMAGE_SIZE));
@@ -760,7 +762,8 @@ int main(int argc, char *argv[])
 		fclose(fp_DATA);		
 	#else // If GENERATE_NEW_MOCK is 0
 		FILE *fp_DATA = NULL;
-		fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
+		// fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
+		fp_DATA = fopen("MOCK_DATA_NUMROWS256_NUMCOLS256_D0p1.bin", "rb"); // Note that the data matrix is already padded.
 		fread(&DATA, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA);
 		fclose(fp_DATA);
 	#endif 
@@ -832,7 +835,7 @@ int main(int argc, char *argv[])
 	for (s=0; s<NSAMPLE; s++){
 
 		// (Re) - initialize the acceptance rate array
-		#pragma omp parallel for
+		#pragma omp parallel for simd
 		for (i=0; i<NUM_BLOCKS_TOTAL; i++){
 			ACCEPT_RATE[i*AVX_CACHE2+BIT_ACCEPT] = 0;
 			ACCEPT_RATE[i*AVX_CACHE2+BIT_REJECT] = 0;			
@@ -1072,7 +1075,7 @@ int main(int argc, char *argv[])
 							// Position
 							float dpos_rms = LINEAR_FLUX_STEPSIZE / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
 							#if FREEZE_XY
-								float dx = 1e-3;
+								float dx = 0;
 								float dy = 0;
 							#else
 								float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
@@ -1112,8 +1115,12 @@ int main(int argc, char *argv[])
 									proposed_y[k] -= 2 * tmp;
 								}
 							}
-							// printf("%.3f\n", (proposed_x[k]-px));
-							// printf("%.3f\n", (proposed_y[k]-py));							
+
+							// For debug
+							// if (proposed_x[k] > PADDED_NUM_COLS){
+							// 	printf("%.3f\n", (proposed_x[k]));								
+							// 	printf("%.3f\n", (proposed_x[k]-px));
+							// }
 						}// End of x,y bouncing
 						#if SERIAL_DEBUG
 							printf("Finished fixing x, y at boundaries.\n");
@@ -1435,7 +1442,7 @@ int main(int argc, char *argv[])
 							if (0) // Short circuit so that the proposed changes are always accpeted.
 						#else
 							double dlnL = (p_loglike - b_loglike) * GAIN;
-							float u = (rand_r(&p_seed) / (float) RAND_MAX); // A random uniform number.
+							float u = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)); // A random uniform number.
 							// printf("%.3f\n", u);
 							if (log(u) > ( dlnL + factor))
 						#endif
@@ -1488,7 +1495,7 @@ int main(int argc, char *argv[])
 										printf("Proposed flux: %.3f\n", pf);
 										printf("Original x,y: %.3f, %.3f\n", OBJS[idx + BIT_X], OBJS[idx + BIT_Y]);
 										printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);				
-										printf("\n");								
+										printf("\n");						
 									}	
 								#endif				
 								OBJS[idx + BIT_X] = px;
