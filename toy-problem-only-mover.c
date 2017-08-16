@@ -68,14 +68,14 @@
 // The mesh has to be large enough so that the image lies within the uniform coverage region.
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 68 // Core proposal region 
+#define REGION 44 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_IN_X ((int) (round((NUM_ROWS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_IN_Y ((int) (round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_TOTAL (NUM_BLOCKS_IN_X * NUM_BLOCKS_IN_Y)
 #define MESH_SIZE (NUM_BLOCKS_TOTAL * BLOCK * BLOCK)
-#define GLOBAL_OFFSET_X ((int) (NUM_ROWS - (NUM_BLOCKS_IN_X * BLOCK))/2) // Global offsets for making the centers of image and block mesh conincide
-#define GLOBAL_OFFSET_Y ((int) (NUM_COLS - (NUM_BLOCKS_IN_Y * BLOCK))/2)
+#define GLOBAL_OFFSET_X ((int) (PADDED_NUM_ROWS - (NUM_BLOCKS_IN_X * BLOCK))/2) // Global offsets for making the centers of image and block mesh conincide
+#define GLOBAL_OFFSET_Y ((int) (PADDED_NUM_COLS - (NUM_BLOCKS_IN_Y * BLOCK))/2) // Negative offsets correspond to positive offsets for the objects.
 
 // ---- Mock generation ----- //
 #define GENERATE_NEW_MOCK 0 // If 1, generate mock data based on the global parameters 
@@ -83,7 +83,7 @@
 							// If 0, then use the user provided data.
 
 // ---- Global parameters ---- // 
-#define LINEAR_FLUX_STEPSIZE 10.0
+#define LINEAR_FLUX_STEPSIZE 100.0
 #define GAIN 5.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
 #define TRUE_MIN_FLUX 250.0
 #define TRUE_ALPHA 2.00
@@ -108,14 +108,13 @@
 #define BIT_FLUX 2
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 4 // Number of threads used for execution.
+#define NUM_THREADS 1 // Number of threads used for execution.
 #define POSITIVE_PSF 1	// If 1, whenever computed PSF is negative, clip it at 0.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define MODEL_EVAL_STEP 1 // If 0, model eval step is disabled.
 #define COMPUTE_LOGLIKE_LOCAL 1// If 0, a random integer is used for the log likelihood in each block.
-#define BLOCK_ID_DEBUG 1
-#define OFFSET 0 // If 1, blocks are offset by a random amount in each iteration.
+#define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
@@ -133,14 +132,15 @@
 	// One thread, multiple blocks, multiplie iterations.
 	// Multiple threads, multiple blocks, multiple iterations.
 	#define NLOOP 1 // Number of times to loop before sampling
-	#define NSAMPLE 100 // Numboer samples to collect
+	#define NSAMPLE 1 // Numboer samples to collect
+	#define BLOCK_ID_DEBUG 0
 #else // If in normal mode
-	#define NLOOP 10// Number of times to loop before sampling
-	#define NSAMPLE 50// Numboer samples to collect
+	#define NLOOP 1// Number of times to loop before sampling
+	#define NSAMPLE 100// Numboer samples to collect
 #endif 
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
-#define FREEZE_XY 1 // If 1, freeze the X, Y positins of the objs.
-#define FREEZE_F 1 // If 1, free the flux
+#define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
+#define FREEZE_F 0 // If 1, free the flux
 
 
 
@@ -274,9 +274,9 @@ int main(int argc, char *argv[])
 	printf("Number of blocks processed per step: %d\n", NUM_BLOCKS_TOTAL);
 	printf("Global offset X/Y: %d, %d\n", GLOBAL_OFFSET_X, GLOBAL_OFFSET_Y);
 	printf("Number of stars to be used to fit the data: %d\n", MAX_STARS);	
-	printf("Mesh linear width: %.2f\n", sqrt((float) MESH_SIZE));
-	printf("Image linear width: %.2f\n", sqrt((float) IMAGE_SIZE));
-	printf("Mesh to image ratio: %.2f\n", sqrt((float) MESH_SIZE)/sqrt((float) IMAGE_SIZE));
+	printf("Mesh linear width: %.2f\n", sqrt((double) MESH_SIZE));
+	printf("Image linear width: %.2f\n", sqrt((double) IMAGE_SIZE));
+	printf("Mesh to image ratio: %.2f\n", sqrt((double) MESH_SIZE)/sqrt((double) IMAGE_SIZE));
 	printf("Obj density: %.2f per pixel\n", (((float) MAX_STARS)/ (float) IMAGE_SIZE));
 	printf("\n");
 
@@ -365,8 +365,8 @@ int main(int argc, char *argv[])
 				OBJS[idx+BIT_Y] = BLOCK/2; // y
 				OBJS[idx+BIT_FLUX] = TRUE_MIN_FLUX * 500.;
 			#else
-				OBJS[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_ROWS+PAD-1; // x
-				OBJS[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_COLS+PAD-1; // y
+				OBJS[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_ROWS+PAD; // x
+				OBJS[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)) * NUM_COLS+PAD; // y
 				float u = rand_r(&p_seed)/((float) RAND_MAX + 1.0);
 				#if SET_UPPER_FLUX_LIMIT
 					OBJS[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
@@ -402,7 +402,7 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) int init_iy[MAX_STARS];					
 	#pragma omp parallel for simd
 	for (k=0; k< MAX_STARS; k++){
-		init_ix[k] = ceil(init_x[k]); // No need to worry about the padding width now.
+		init_ix[k] = ceil(init_x[k]); // No need to worry about the padding width.
 		init_iy[k] = ceil(init_y[k]);
 	} // end of ix, iy computation
 	
@@ -563,8 +563,8 @@ int main(int argc, char *argv[])
 					OBJS_TRUE[idx+BIT_Y] = BLOCK/2; // y
 					OBJS_TRUE[idx+BIT_FLUX] = TRUE_MIN_FLUX * 5000.0; // Constant flux values for all the stars. Still an option.
 				#else
-					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * NUM_COLS + PAD - 1; // x
-					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * NUM_ROWS + PAD - 1; // y
+					OBJS_TRUE[idx+BIT_X] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * NUM_COLS + PAD; // x
+					OBJS_TRUE[idx+BIT_Y] = (rand_r(&p_seed) / ((float) RAND_MAX+1.0)) * NUM_ROWS + PAD; // y
 					float u = rand_r(&p_seed)/((float) RAND_MAX + 1.0);					
 					#if SET_UPPER_FLUX_LIMIT
 						OBJS_TRUE[idx+BIT_FLUX] = min(FLUX_UPPER_LIMIT, TRUE_MIN_FLUX * exp(-log(u) * (TRUE_ALPHA-1.0))); // flux. Impose an upper limit.							
@@ -896,8 +896,8 @@ int main(int argc, char *argv[])
 					int idx = i*AVX_CACHE;
 					float x_float = OBJS[idx+BIT_X];
 					float y_float = OBJS[idx+BIT_Y];
-					int x = floor(x_float - offset_X - PAD);
-					int y = floor(y_float - offset_Y - PAD);
+					int x = floor(x_float - offset_X);
+					int y = floor(y_float - offset_Y);
 
 					int b_idx = x / BLOCK;
 					int b_idy = y / BLOCK;
@@ -945,7 +945,7 @@ int main(int argc, char *argv[])
 			for (block_ID=0; block_ID < NUM_BLOCKS_TOTAL; block_ID+=INCREMENT){ // Row direction				
 					int k, l, m; // private loop variables
 					int ibx = block_ID / NUM_BLOCKS_IN_Y;
-					int iby = block_ID % NUM_BLOCKS_IN_Y;
+					int iby = block_ID % NUM_BLOCKS_IN_X;
 					int t_id = omp_get_thread_num();
 					// int block_ID = (ibx * NUM_BLOCKS_IN_Y) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.					
 					// printf("block_ID, ibx, iby: %d, %d, %d\n", block_ID, ibx, iby);
@@ -1001,8 +1001,8 @@ int main(int argc, char *argv[])
 								for (k=0; k<p_nobjs; k++){
 									float x_float = p_objs[AVX_CACHE*k+BIT_X];
 									float y_float = p_objs[AVX_CACHE*k+BIT_Y];
-									float x = x_float - PAD - offset_X;
-									float y = y_float - PAD - offset_Y;			
+									float x = x_float - offset_X;
+									float y = y_float - offset_Y;			
 									int x_in_block = x - ibx * BLOCK;
 									int y_in_block = y - iby * BLOCK;								
 									printf("OBJS number: %d\n", p_objs_idx[k]);							
@@ -1059,7 +1059,7 @@ int main(int argc, char *argv[])
 						for (k=0; k<p_nobjs; k++){
 							// Flux
 							#if FREEZE_F
-								float df = 0;
+								float df = 0.0;
 							#else
 								float df = randn[(BIT_FLUX * MAXCOUNT_BLOCK) + k] * LINEAR_FLUX_STEPSIZE; // (60./np.sqrt(25.))
 							#endif
@@ -1075,8 +1075,8 @@ int main(int argc, char *argv[])
 							// Position
 							float dpos_rms = LINEAR_FLUX_STEPSIZE / max(proposed_flux[k], f0); // dpos_rms = np.float32(60./np.sqrt(25.))/(np.maximum(f0, pf))
 							#if FREEZE_XY
-								float dx = 0;
-								float dy = 0;
+								float dx = 0.0;
+								float dy = 0.0;
 							#else
 								float dx = randn[BIT_X * MAXCOUNT_BLOCK + k] * dpos_rms; // dpos_rms ~ 2 x 12 / 250. Essentially sub-pixel movement.
 								float dy = randn[BIT_Y * MAXCOUNT_BLOCK + k] * dpos_rms;
@@ -1099,8 +1099,8 @@ int main(int argc, char *argv[])
 								proposed_x[k] += 2 * tmp;
 							}
 							else{
-								if (px > (PAD + NUM_ROWS - 1)){
-									float tmp = px - (PAD + NUM_ROWS - 1);									
+								if (px > (PAD + NUM_ROWS)){
+									float tmp = px - (PAD + NUM_ROWS);									
 									proposed_x[k] -= 2 * tmp;
 								}
 							}
@@ -1110,8 +1110,8 @@ int main(int argc, char *argv[])
 								proposed_y[k] += 2 * tmp;
 							}
 							else{
-								if (py > (PAD + NUM_COLS- 1)){
-									float tmp = py - (PAD + NUM_COLS - 1);									
+								if (py > (PAD + NUM_COLS)){
+									float tmp = py - (PAD + NUM_COLS);									
 									proposed_y[k] -= 2 * tmp;
 								}
 							}
@@ -1223,11 +1223,11 @@ int main(int argc, char *argv[])
 						// Note that the integer x, y positions are in block position.
 						__attribute__((aligned(64))) int ix[MAXCOUNT_BLOCK * 2];
 						__attribute__((aligned(64))) int iy[MAXCOUNT_BLOCK * 2];
-						int idx_row = ibx * BLOCK + offset_X + PAD; // BLOCK/2 is for the padding.
-						int idx_col = iby * BLOCK + offset_Y + PAD;
+						int idx_row = ibx * BLOCK + offset_X; // Starting position of the block with respect to the padded image frame.
+						int idx_col = iby * BLOCK + offset_Y;
 						#pragma omp simd
 						for (k=0; k<p_nobjs; k++){
-							ix[k] = current_ix[k] - idx_row;
+							ix[k] = current_ix[k] - idx_row; // Index position within the block
 							ix[p_nobjs+k] = proposed_ix[k] - idx_row;
 							iy[k] = current_iy[k] - idx_col;
 							iy[p_nobjs+k] = proposed_iy[k] - idx_col;
@@ -1261,8 +1261,8 @@ int main(int argc, char *argv[])
 						int l_max = BLOCK;
 						int m_min = 0;
 						int m_max = BLOCK;
-						if (idx_row < PAD) { l_min = PAD - idx_row;}
-						if (idx_col < PAD) { m_min = PAD - idx_col;}
+						if (idx_row < PAD) { l_min = PAD - idx_row;} // PAD is where the image starts.
+						if (idx_col < PAD) { m_min = PAD - idx_col;} // 
 						// if ( (idx_row+BLOCK) > (DATA_WIDTH+BLOCK/2-1)) { l_max = BLOCK - (idx_row+BLOCK-DATA_WIDTH-BLOCK/2+1); }
 						if ( idx_row > (NUM_ROWS+PAD-BLOCK-1)) { l_max = -idx_row+NUM_ROWS+PAD; }
 						if ( idx_col > (NUM_COLS+PAD-BLOCK-1)) { m_max = -idx_col+NUM_COLS+PAD; }
@@ -1287,9 +1287,9 @@ int main(int argc, char *argv[])
 
 						#if DEBUG
 							if (block_ID == BLOCK_ID_DEBUG) { 
-								printf("%4d\n", block_ID);
-								printf("%4d, %4d\n", idx_row, idx_col);
-								printf("%4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
+								printf("Block id: %4d\n", block_ID);
+								printf("idx_row,col: %4d, %4d\n", idx_row, idx_col);
+								printf("lm min max: %4d, %4d, %4d, %4d\n\n", l_min, l_max, m_min, m_max); 
 							}
 						#endif
 
@@ -1307,7 +1307,7 @@ int main(int argc, char *argv[])
 								float tmp = model_proposed[idx];
 								float f = log(tmp);
 								float g = f * data[idx];
-								loglike_simd_helper[m%AVX_CACHE2] += g - tmp;
+								loglike_simd_helper[m%AVX_CACHE2] += (g - tmp);
 							}
 						}						
 
@@ -1419,7 +1419,7 @@ int main(int argc, char *argv[])
 								float tmp = model_proposed[idx];
 								float f = log(tmp);
 								float g = f * data[idx];
-								loglike_simd_helper[m%AVX_CACHE2] += g - tmp;
+								loglike_simd_helper[m%AVX_CACHE2] += (g - tmp);
 							}
 						}						
 
@@ -1442,13 +1442,42 @@ int main(int argc, char *argv[])
 							if (0) // Short circuit so that the proposed changes are always accpeted.
 						#else
 							double dlnL = (p_loglike - b_loglike) * GAIN;
-							float u = (rand_r(&p_seed) / ((float) RAND_MAX + 1.0)); // A random uniform number.
+							float u = (rand_r(&p_seed) / (((float) RAND_MAX)+ 1.0)); // A random uniform number.
 							// printf("%.3f\n", u);
 							if (log(u) > ( dlnL + factor))
 						#endif
 						{
 							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_REJECT] += 1;							
 							ACCEPT_RATE[block_ID*AVX_CACHE2+BIT_NOBJS_REJECT] += p_nobjs;
+
+							// For debugging
+								// printf("Bid %d dlnL: %.5f\n", block_ID, dlnL);
+								// printf("b,p_loglike %.2f, %.2f\n", b_loglike, p_loglike);	
+								// for (k=0; k < p_nobjs; k++){
+								// 	// printf("Begun accessing obj_num\n");	Debug
+								// 	int obj_num = p_objs_idx[k];
+								// 	// printf("Accessed obj_num\n"); Debug
+								// 	int idx =  obj_num * AVX_CACHE;
+								// 	float px = proposed_x[k];
+								// 	float py = proposed_y[k];
+								// 	float pf = proposed_flux[k];
+								// 	float x = px - offset_X;
+								// 	float y = py - offset_Y;			
+								// 	float x_in_block = x - ibx * BLOCK;
+								// 	float y_in_block = y - iby * BLOCK;								
+								// 	printf("OBJS number: %d\n", obj_num);
+								// 	printf("idx: %d\n", idx);
+								// 	printf("Thread num: %d\n", omp_get_thread_num());
+								// 	printf("Block id x,y: %d, %d\n", ibx, iby);
+								// 	printf("x,y before adjustment: %.3f, %.3f\n", px, py);
+								// 	printf("x,y after adjustment: %.3f, %.3f\n", x, y);
+								// 	printf("x,y in block: %.3f, %.3f\n", x_in_block, y_in_block);							
+								// 	printf("Proposed flux: %.3f\n", pf);
+								// 	printf("Original x,y: %.3f, %.3f\n", OBJS[idx + BIT_X], OBJS[idx + BIT_Y]);
+								// 	printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);
+								// 	printf("\n");
+								// 	// printf("Finished depositing.\n");
+								// }	
 						}
 						else{
 							// Accept the proposal
@@ -1481,8 +1510,8 @@ int main(int argc, char *argv[])
 								float pf = proposed_flux[k];
 								#if DEBUG
 									if (block_ID == BLOCK_ID_DEBUG){
-										float x = px - PAD - offset_X;
-										float y = py - PAD - offset_Y;			
+										float x = px - offset_X;
+										float y = py - offset_Y;			
 										float x_in_block = x - ibx * BLOCK;
 										float y_in_block = y - iby * BLOCK;								
 										printf("OBJS number: %d\n", obj_num);
@@ -1494,10 +1523,10 @@ int main(int argc, char *argv[])
 										printf("x,y in block: %.3f, %.3f\n", x_in_block, y_in_block);							
 										printf("Proposed flux: %.3f\n", pf);
 										printf("Original x,y: %.3f, %.3f\n", OBJS[idx + BIT_X], OBJS[idx + BIT_Y]);
-										printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);				
-										printf("\n");						
+										printf("Original f %.3f\n", OBJS[idx + BIT_FLUX]);
+										printf("\n");
 									}	
-								#endif				
+								#endif	
 								OBJS[idx + BIT_X] = px;
 								OBJS[idx + BIT_Y] = py;
 								OBJS[idx + BIT_FLUX] = pf;
