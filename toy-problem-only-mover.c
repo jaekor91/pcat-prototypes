@@ -78,7 +78,7 @@
 #define GLOBAL_OFFSET_Y ((int) (PADDED_NUM_COLS - (NUM_BLOCKS_IN_Y * BLOCK))/2) // Negative offsets correspond to positive offsets for the objects.
 
 // ---- Mock generation ----- //
-#define GENERATE_NEW_MOCK 0 // If 1, generate mock data based on the global parameters 
+#define GENERATE_NEW_MOCK 1 // If 1, generate mock data based on the global parameters 
 							// below and using the image dimensions above. 
 							// If 0, then use the user provided data.
 
@@ -325,8 +325,8 @@ int main(int argc, char *argv[])
 	__attribute__((aligned(64))) float A[size_of_A]; // Design matrix [INNER, NPIX2]
 
 	// Initialize to flat values.
-	init_mat_float(DATA, PADDED_IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region
-	init_mat_float(MODEL, PADDED_IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region
+	// init_mat_float(DATA, PADDED_IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region
+	// There is no reason to initialize data at this point.
 	init_mat_float(A, size_of_A, 1e-03, 0); // Fill data with small values
 
 	// Read in the psf design matrix A
@@ -339,13 +339,13 @@ int main(int argc, char *argv[])
 	// printf("A[312]: %.3f\n", A[312]); // Should be 0.2971158 (based on Gaussian psf) // Debug
 
 
-
 	// ------ Initialize DATA matrix by either reading in an old data or generating a new mock ----- //
 	#if GENERATE_NEW_MOCK 
 		__attribute__((aligned(64))) float OBJS_TRUE[AVX_CACHE * NUM_TRUE_STARS];
 		__attribute__((aligned(64))) float mock_x[NUM_TRUE_STARS];
 		__attribute__((aligned(64))) float mock_y[NUM_TRUE_STARS];
 		__attribute__((aligned(64))) float mock_f[NUM_TRUE_STARS];
+
 		// Initialize 
 		#pragma omp parallel for simd shared(OBJS_TRUE)
 		for (i=0; i< AVX_CACHE * NUM_TRUE_STARS; i++){
@@ -501,6 +501,9 @@ int main(int argc, char *argv[])
 			printf("Finished hashing.\n");
 		#endif
 
+		// Initialize the MODEL matrix before being used as the scratch pad for generating mock data.
+		init_mat_float(MODEL, PADDED_IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region			
+
 		// row and col location of the star based on X, Y values.
 		// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
 		// Calculate PSF and then add to model proposed
@@ -528,15 +531,15 @@ int main(int argc, char *argv[])
 				#pragma omp simd
 				for (l=0; l<NPIX2; l++){
 					float a = positive_psf_helper[l];
-					float b = DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)];
-					DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
+					float b = MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)];
+					MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
 			}// End of PSF calculation for K-th star
 
 			#else
 				#pragma omp simd collapse(2)
 				for (l=0; l<NPIX2; l++){
 					for (m=0; m<INNER; m++){
-						DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+						MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
 					}
 				}// End of PSF calculation for K-th star					
 			#endif				
@@ -549,9 +552,7 @@ int main(int argc, char *argv[])
 		#pragma omp parallel for collapse(2)
 		for (l=PAD-1; l<(PAD+NUM_ROWS); l++){
 			for (m=PAD-1; m<(PAD+NUM_COLS); m++){
-				// printf("%d, %d: %.3f\n", l, m, DATA[l*PADDED_NUM_COLS+m]);
-				DATA[l*PADDED_NUM_COLS+m] = rand_poisson((double) (GAIN * DATA[l*PADDED_NUM_COLS+m])) / GAIN;
-				// printf("Completed: %.3f\n", DATA[l*PADDED_DATA_WIDTH+m]);
+				DATA[l*PADDED_NUM_COLS+m] = rand_poisson((double) (GAIN * MODEL[l*PADDED_NUM_COLS+m])) / GAIN;
 			}
 		}
 
@@ -559,13 +560,32 @@ int main(int argc, char *argv[])
 		FILE *fp_DATA = NULL;
 		fp_DATA = fopen("MOCK_DATA.bin", "wb"); // Note that the data matrix is already padded.
 		fwrite(&DATA, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA);
-		fclose(fp_DATA);		
+		fclose(fp_DATA);
+		printf("\n");
+		printf("Save the DATA.\n");
+
+		// Saving the true underlying model
+		FILE *fp_DATA_TRUE_MODEL = NULL;
+		fp_DATA_TRUE_MODEL = fopen("MOCK_DATA_TRUE_MODEL.bin", "wb"); // Note that the data matrix is already padded.
+		fwrite(&MODEL, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA_TRUE_MODEL);
+		fclose(fp_DATA_TRUE_MODEL);
+		printf("Save the true model for DATA.\n");
+
 	#else // If GENERATE_NEW_MOCK is 0
 		FILE *fp_DATA = NULL;
 		// fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
 		fp_DATA = fopen("MOCK_DATA_NUMROWS256_NUMCOLS256_D0p1.bin", "rb"); // Note that the data matrix is already padded.
 		fread(&DATA, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA);
 		fclose(fp_DATA);
+		printf("\n");
+		printf("Read in the DATA.\n");
+
+		FILE *fp_DATA_TRUE_MODEL = NULL;
+		// fp_DATA = fopen("MOCK_DATA_TRUE_MODEL.bin", "rb"); // Note that the data matrix is already padded.
+		fp_DATA_TRUE_MODEL = fopen("MOCK_DATA_TRUE_MODEL_NUMROWS256_NUMCOLS256_D0p1.bin", "rb"); // Note that the data matrix is already padded.
+		fread(&DATA, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA_TRUE_MODEL);
+		fclose(fp_DATA_TRUE_MODEL);
+		printf("Read in the true model for DATA.\n");
 	#endif 
 	// -------- End of DATA initialization ------- //
 
@@ -752,6 +772,9 @@ int main(int argc, char *argv[])
     #if SERIAL_DEBUG
 		printf("Finished hashing.\n");
 	#endif
+
+	// Initialize the MODEL matrix. 
+	init_mat_float(MODEL, PADDED_IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region
 
 	// row and col location of the star based on X, Y values.
 	// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
