@@ -83,7 +83,7 @@
 							// If 0, then use the user provided data.
 
 // ---- Global parameters ---- // 
-#define LINEAR_FLUX_STEPSIZE 100000.0
+#define LINEAR_FLUX_STEPSIZE 100.0
 #define GAIN 1.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
 #define TRUE_MIN_FLUX 1250.0
 #define TRUE_ALPHA 2.00
@@ -108,7 +108,7 @@
 #define BIT_FLUX 2
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 4	 // Number of threads used for execution.
+#define NUM_THREADS 36	 // Number of threads used for execution.
 #define POSITIVE_MODEL 1	// If 1, whenever the computed image is negative, clip it at 1.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
@@ -117,7 +117,7 @@
 #define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
 #define OFFSET_PERIOD 100// Fix the offset for a prescribed number of proposals.
 #define PRINT_PERF 1// If 1, print peformance after every sample.
-#define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
+#define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
 #define SAVE_ONLY_LAST 1 // If 1, only save the last sample
@@ -136,12 +136,12 @@
 	#define NSAMPLE 1 // Numboer samples to collect
 	#define BLOCK_ID_DEBUG 0
 #else // If in normal mode
-	#define NLOOP 1// Number of times to loop before sampling
-	#define NSAMPLE 2// Numboer samples to collect
+	#define NLOOP 1000// Number of times to loop before sampling
+	#define NSAMPLE 500// Numboer samples to collect
 #endif 
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
-#define FREEZE_XY 1 // If 1, freeze the X, Y positins of the objs.
-#define FREEZE_F 1 // If 1, free the flux
+#define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
+#define FREEZE_F 0 // If 1, free the flux
 
 
 
@@ -518,7 +518,7 @@ int main(int argc, char *argv[])
 				printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
 			#endif
 
-			#pragma omp simd collapse(2)
+			// #pragma omp simd collapse(2)
 			for (l=0; l<NPIX2; l++){
 				for (m=0; m<INNER; m++){
 					MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
@@ -542,7 +542,7 @@ int main(int argc, char *argv[])
 		#endif
 
 		// Poisson generation of the model
-		#pragma omp parallel for collapse(2)
+		// #pragma omp parallel for collapse(2)
 		for (l=PAD-1; l<(PAD+NUM_ROWS); l++){
 			for (m=PAD-1; m<(PAD+NUM_COLS); m++){
 				DATA[l*PADDED_NUM_COLS+m] = rand_poisson((double) (GAIN * MODEL[l*PADDED_NUM_COLS+m])) / GAIN;
@@ -781,7 +781,7 @@ the second is that of the initial model, and the third that of the first sample.
 			printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
 		#endif
 
-		#pragma omp simd collapse(2)
+		// #pragma omp simd collapse(2)
 		for (l=0; l<NPIX2; l++){
 			for (m=0; m<INNER; m++){
 				MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] += init_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
@@ -1335,7 +1335,7 @@ the second is that of the initial model, and the third that of the first sample.
 						}
 
 						for (l = l_min; l < l_max; l++){ // Compiler automatically vectorize this.
-							#pragma omp simd
+							// #pragma omp simd
 							for (m = m_min; m < m_max; m++){
 								int idx = l*BLOCK+m;
 								// Poisson likelihood
@@ -1404,7 +1404,7 @@ the second is that of the initial model, and the third that of the first sample.
 								printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
 							#endif
 							
-							#pragma omp simd collapse(2)
+							// #pragma omp simd collapse(2)
 							for (l=0; l<NPIX2; l++){
 								for (m=0; m<INNER; m++){
 									model_proposed[(idx_x+(l/NPIX)-NPIX_div2)*BLOCK + (idx_y+(l%NPIX)-NPIX_div2)] += dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
@@ -1415,7 +1415,7 @@ the second is that of the initial model, and the third that of the first sample.
 						#if POSITIVE_MODEL
 						// Clipping the image to be positive
 							for (l=l_min; l<l_max; l++){
-								#pragma omp simd
+								// #pragma omp simd // Compiler knows how to vectorize this
 								for (m=m_min; m<m_max; m++){
 									int m_idx = l*BLOCK + m;
 									model_proposed[l*BLOCK + m] = max(1, model_proposed[m_idx]);
@@ -1435,7 +1435,7 @@ the second is that of the initial model, and the third that of the first sample.
 						}
 
 						for (l = l_min; l < l_max; l++){ 
-							#pragma omp simd							
+							// #pragma omp simd							
 							for (m = m_min; m < m_max; m++){
 								int idx = l*BLOCK+m;
 								// Poisson likelihood
@@ -1507,7 +1507,7 @@ the second is that of the initial model, and the third that of the first sample.
 						 	// Note that since padded region is never considered for loglike calculation,
 							// there is no need worry about them as we update the image.
 							for (l=l_min; l<l_max; l++){
-								#pragma omp simd
+								// #pragma omp simd
 								for (m=m_min; m<m_max; m++){
 									MODEL[(idx_row+l)*PADDED_NUM_COLS + (idx_col+m)]=model_proposed[l*BLOCK + m];
 								}
