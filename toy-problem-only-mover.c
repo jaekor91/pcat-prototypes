@@ -108,14 +108,14 @@
 #define BIT_FLUX 2
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 36	 // Number of threads used for execution.
+#define NUM_THREADS 2	 // Number of threads used for execution.
 #define POSITIVE_MODEL 1	// If 1, whenever the computed image is negative, clip it at 1.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define MODEL_EVAL_STEP 1 // If 0, model eval step is disabled.
 #define COMPUTE_LOGLIKE_LOCAL 1// If 0, a random integer is used for the log likelihood in each block.
 #define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
-#define OFFSET_PERIOD 100// Fix the offset for a prescribed number of proposals.
+#define OFFSET_PERIOD 1// Fix the offset for a prescribed number of proposals.
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
@@ -1767,7 +1767,10 @@ the second is that of the initial model, and the third that of the first sample.
 		#endif			
 
 		#if PRINT_PERF
-			printf("Sample %d: T_parallel (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
+			printf("Sample %d\n", s);
+			double T_serial = (dt_per_iter/(double) NUM_BLOCKS_TOTAL);
+			printf("T_parallel (us): %.3f,  T_serial (us): %.3f\n", dt_per_iter, T_serial);
+			printf("T_single_thread (us): %.3f\n", (T_serial * NUM_THREADS));
 			printf("Time for %d parallel proposals (s): %.3f\n", NLOOP, dt);
 			#if SAVE_CHAIN
 				printf("Time for saving the sample (us): %.3f\n", dt_savechain * 1e06);
