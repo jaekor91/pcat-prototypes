@@ -37,7 +37,7 @@
 #define INNER 10
 #define AVX_CACHE2 16
 #define AVX_CACHE AVX_CACHE2
-#define MAXCOUNT_BLOCK 32 // Maximum number of objects expected to be found in a proposal region. 
+#define MAXCOUNT_BLOCK 1024 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
 							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
 #define INCREMENT 1 // Block loop increment
@@ -68,7 +68,7 @@
 // The mesh has to be large enough so that the image lies within the uniform coverage region.
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 4 // Core proposal region 
+#define REGION 68 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_IN_X ((int) (round((NUM_ROWS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_IN_Y ((int) (round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
@@ -108,13 +108,14 @@
 #define BIT_FLUX 2
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 1 // Number of threads used for execution.
+#define NUM_THREADS 2 // Number of threads used for execution.
 #define POSITIVE_MODEL 1	// If 1, whenever the computed image is negative, clip it at 1.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define MODEL_EVAL_STEP 1 // If 0, model eval step is disabled.
 #define COMPUTE_LOGLIKE_LOCAL 1// If 0, a random integer is used for the log likelihood in each block.
-#define OFFSET 0 // If 1, blocks are offset by a random amount in each iteration.
+#define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
+#define OFFSET_PERIOD 100// Fix the offset for a prescribed number of proposals.
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
@@ -855,6 +856,7 @@ the second is that of the initial model, and the third that of the first sample.
 
 	double start, end, dt, dt_per_iter; // For timing purpose.
 	double dt_total, start_total, end_total; // Measure time taken for the whole run.	
+	int mesh_offset_X, mesh_offset_Y; // Mesh offsets need to remembered over many parallel proposals.
 	dt = 0; // Time accumulator
 
 	dt_total = -omp_get_wtime();
@@ -881,13 +883,19 @@ the second is that of the initial model, and the third that of the first sample.
 			// The mesh size is the same as the image size. It's shifted in each iteration.
 			// Positive offset corresponds to adding offset_X, offset_Y for getting the 
 			// relevant DATA and MODEL elements but subtracting when computing the block id.
-			#if OFFSET
-				int offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2 + GLOBAL_OFFSET_X;
-				int offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2 + GLOBAL_OFFSET_Y;
-			#else
-				int offset_X = GLOBAL_OFFSET_X; 
-				int offset_Y = GLOBAL_OFFSET_Y; 
+
+			int offset_X = GLOBAL_OFFSET_X; 
+			int offset_Y = GLOBAL_OFFSET_Y; 				
+			#if OFFSET // If period offset is asked for
+				if (((s * NLOOP + j) % OFFSET_PERIOD) == 0){
+					mesh_offset_X = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+					mesh_offset_Y = generate_offset(-BLOCK/4, BLOCK/4) * 2;
+				}
+				offset_X += mesh_offset_X;
+				offset_Y += mesh_offset_Y;
 			#endif 
+
+
 			#if DEBUG
 				printf("Offset X, Y: %d, %d\n\n", offset_X, offset_Y);
 			#endif
