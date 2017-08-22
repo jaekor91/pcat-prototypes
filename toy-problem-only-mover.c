@@ -54,7 +54,7 @@
 // Note that the image size is not a simple multiple of the size of block being used.
 // NUM_ROWS and NUM_COLS must be even numbers.
 // The block mesh's center will conincide with the center of the image. 
-#define NUM_ROWS 256
+#define NUM_ROWS 64
 #define NUM_COLS NUM_ROWS
 #define IMAGE_SIZE (NUM_ROWS * NUM_COLS)
 #define PAD AVX_CACHE2
@@ -68,7 +68,7 @@
 // The mesh has to be large enough so that the image lies within the uniform coverage region.
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 4 // Core proposal region 
+#define REGION 8 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_IN_X ((int) (round((NUM_ROWS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_IN_Y ((int) (round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
@@ -135,8 +135,8 @@
 	#define NSAMPLE 1 // Numboer samples to collect
 	#define BLOCK_ID_DEBUG 0
 #else // If in normal mode
-	#define NLOOP 10// Number of times to loop before sampling
-	#define NSAMPLE 100// Numboer samples to collect
+	#define NLOOP 1000// Number of times to loop before sampling
+	#define NSAMPLE 500// Numboer samples to collect
 #endif 
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
@@ -261,10 +261,11 @@ int main(int argc, char *argv[])
 	// Print basic parameters of the problem.
 	printf("Tip: The number of blocks must be greater than the number of threads.\n\n");
 
+	printf("| ----- Run parameters ----- |\n");
 	printf("Number of sample to collect: %d\n", NSAMPLE);
 	printf("Thinning rate: %d\n", NLOOP);
-	printf("Total number of parallel iterations: %d, (%d K)\n", (NSAMPLE * NLOOP), (NSAMPLE * NLOOP) / (1000));
-	printf("Total number of serial iterations: %.2f M\n", (NSAMPLE * NLOOP * NUM_BLOCKS_TOTAL) / (1e06));
+	printf("Total number of parallel proposals: %d, (%d K)\n", (NSAMPLE * NLOOP), (NSAMPLE * NLOOP) / (1000));
+	printf("Total number of serial proposals: %.2f M\n", (NSAMPLE * NLOOP * NUM_BLOCKS_TOTAL) / (1e06));
 	printf("Block width: %d\n", BLOCK);
 	printf("MARGIN 1/2: %d/%d\n", MARGIN1, MARGIN2);
 	printf("Proposal region width: %d\n", REGION);
@@ -280,13 +281,14 @@ int main(int argc, char *argv[])
 	printf("Obj density: %.2f per pixel\n", (((float) MAX_STARS)/ (float) IMAGE_SIZE));
 	printf("\n");
 
-	printf("Problem parameters\n");
-	printf("True min flux: %.1f\n", TRUE_MIN_FLUX);
-	printf("True background: %.1f\n", TRUE_BACK);
+	printf("| ----- Experimental parameters ----- |\n");
+	printf("True min flux (ADU): %.1f\n", TRUE_MIN_FLUX);
+	printf("True background (ADU): %.1f\n", TRUE_BACK);
 	printf("GAIN: %.1f\n", GAIN);
-	printf("Linear flux step size: %.1f\n", LINEAR_FLUX_STEPSIZE);
+	printf("Linear flux step size (ADU): %.1f\n", LINEAR_FLUX_STEPSIZE);
 	printf("\n");
 
+	printf("| ----- OMP parameters ----- |\n");
 	int stack_size = kmp_get_stacksize_s() / 1e06;
 	printf("Stack size being used: %dMB\n", stack_size);	
 	printf("Number of processors available: %d\n", omp_get_num_procs());
@@ -583,38 +585,40 @@ int main(int argc, char *argv[])
 		FILE *fp_DATA_TRUE_MODEL = NULL;
 		// fp_DATA = fopen("MOCK_DATA_TRUE_MODEL.bin", "rb"); // Note that the data matrix is already padded.
 		fp_DATA_TRUE_MODEL = fopen("MOCK_DATA_TRUE_MODEL_NUMROWS256_NUMCOLS256_D0p1.bin", "rb"); // Note that the data matrix is already padded.
-		fread(&DATA, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA_TRUE_MODEL);
+		fread(&MODEL, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA_TRUE_MODEL);
 		fclose(fp_DATA_TRUE_MODEL);
 		printf("Read in the true model for DATA.\n");
 	#endif 
 	// -------- End of DATA initialization ------- //
 
-	// #if COMPUTE_LOGLIKE
-	// 	double dt_loglike_true = -omp_get_wtime();
+	#if COMPUTE_LOGLIKE
+		double dt_loglike_true = -omp_get_wtime();
 
-	// 	// ---- Calculate the likelihood based on the curret model ---- //
-	// 	double lnL0 = 0; // Loglike 
-	// 	#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL0)
-	// 	for (i=PAD-1; i<(PAD+NUM_ROWS); i++){
-	// 		for (j=PAD-1; j<(PAD+NUM_COLS); j++){
-	// 			int idx = i*PADDED_NUM_COLS+j;
-	// 			// Poisson likelihood
-	// 			float tmp = MODEL[idx];
-	// 			float f = log(tmp);
-	// 			float g = f * DATA[idx];
-	// 			lnL0 += g - tmp;
-	// 		}// end of column loop
-	// 	} // End of row loop
+		// ---- Calculate the likelihood based on the curret model ---- //
+		double lnL_true = 0; // Loglike 
+		#pragma omp parallel for simd collapse(2) private(i,j) reduction(+:lnL_true)
+		for (i=PAD-1; i<(PAD+NUM_ROWS); i++){
+			for (j=PAD-1; j<(PAD+NUM_COLS); j++){
+				int idx = i*PADDED_NUM_COLS+j;
+				// Poisson likelihood
+				float tmp = MODEL[idx];
+				float f = log(tmp);
+				float g = f * DATA[idx];
+				lnL_true += g - tmp;
+			}// end of column loop
+		} // End of row loop
 
-	// 	lnL0 *= GAIN;// Multiple by the gain factor
-	// 	dt_loglike0 += omp_get_wtime();
-	// 	printf("\n");
-	// 	printf("Time for computing initial loglike (us): %.3f\n", dt_loglike0 * 1e06);
-	// 	printf("Initial lnL: %.3f\n", lnL0);
-	// 	printf("\n");		
-	// 	// Save the loglike as default.
-	// 	fwrite(&lnL0, sizeof(double), 1, fplnL);		
-	// #endif	
+		lnL_true *= GAIN;// Multiple by the gain factor
+		dt_loglike_true += omp_get_wtime();
+		printf("\n");
+		printf("Time for computing true loglike (us): %.3f\n", dt_loglike_true * 1e06);
+		printf("True lnL: %.3f\n", lnL_true);
+		printf("Remember that in the loglike chain file, the first val is the true loglike,\n\
+the second is that of the initial model, and the third that of the first sample.\n");
+		printf("\n");		
+		// Save the loglike as default.
+		fwrite(&lnL_true, sizeof(double), 1, fplnL);
+	#endif	
 
 
 
@@ -893,7 +897,7 @@ int main(int argc, char *argv[])
 		start = omp_get_wtime(); // Timing starts here 		
 		for (j=0; j<NLOOP; j++){
 			#if SERIAL_DEBUG 
-				printf("\n------ Start of iteration %d -------\n", j);
+				printf("\n------ Start of proposals %d -------\n", j);
 			#endif
 
 			// ------- Generating offsets ------ //
@@ -1799,7 +1803,7 @@ int main(int argc, char *argv[])
 
 		#if PRINT_PERF
 			printf("Sample %d: T_parallel (us): %.3f,  T_serial (us): %.3f\n", s, dt_per_iter, (dt_per_iter/(double) NUM_BLOCKS_TOTAL));
-			printf("Time for %d iterations (s): %.3f\n", NLOOP, dt);
+			printf("Time for %d parallel proposals (s): %.3f\n", NLOOP, dt);
 			#if SAVE_CHAIN
 				printf("Time for saving the sample (us): %.3f\n", dt_savechain * 1e06);
 			#endif			
@@ -1832,7 +1836,7 @@ int main(int argc, char *argv[])
 			printf("Avg. num objs in proposal: %.2f\n", (num_objs_accept+num_objs_reject)/ num_serial_iter);
 			printf("Avg. num objs when accepted: %.2f\n", num_objs_accept/ (float) num_accept);			
 			printf("Avg. num objs when rejected: %.2f\n", num_objs_reject/((float) num_reject));						
-			printf("Fraction of serial iterations with objects: %.2f pcnt\n", 100.*num_serial_iter/((float) (NLOOP*NUM_BLOCKS_TOTAL)));
+			printf("Fraction of serial proposals with objects: %.2f pcnt\n", 100.*num_serial_iter/((float) (NLOOP*NUM_BLOCKS_TOTAL)));
 			printf("\n");				
 		#endif	
 
