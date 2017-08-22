@@ -108,7 +108,7 @@
 #define BIT_FLUX 2
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 49 // Number of threads used for execution.
+#define NUM_THREADS 4	 // Number of threads used for execution.
 #define POSITIVE_MODEL 1	// If 1, whenever the computed image is negative, clip it at 1.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
@@ -962,6 +962,8 @@ the second is that of the initial model, and the third that of the first sample.
 					}//	
 				}
 			}// End of parallel region
+
+
 			#if SERIAL_DEBUG
 				printf("Hashed objects into the current proposal regions.\n");
 				printf("Start computing step.\n");
@@ -971,15 +973,18 @@ the second is that of the initial model, and the third that of the first sample.
 			// Iterating through all the blocks.
 			// IMPORTANT: X is the row direction and Y is the column direction.
 			time_seed = (int) (time(NULL)) * rand();	
-			int block_ID; 
-			#pragma omp parallel for default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A, ACCEPT_RATE) private(k, l, m, jstar, istar, xx, yy, block_ID)
-				for (block_ID=0; block_ID < NUM_BLOCKS_TOTAL; block_ID+=INCREMENT){ 			
+			#pragma omp parallel default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A, ACCEPT_RATE) private(k, l, m, jstar, istar, xx, yy)
+			{
+				int block_ID;
+				#pragma omp for 
+				for (block_ID=0; block_ID < NUM_BLOCKS_TOTAL; block_ID+=INCREMENT){
 					int k, l, m; // private loop variables
 					int ibx = block_ID / NUM_BLOCKS_IN_Y;
 					int iby = block_ID % NUM_BLOCKS_IN_X;
 					int t_id = omp_get_thread_num();
 					// int block_ID = (ibx * NUM_BLOCKS_IN_Y) + iby; // (0, 0) corresponds to block 0, (0, 1) block 1, etc.					
-					// printf("block_ID, ibx, iby: %d, %d, %d\n", block_ID, ibx, iby);
+					// printf("t_id: %3d, block_ID: %3d, omp_get_num_threads: %3d\n", t_id, block_ID, omp_get_num_threads());					
+					// printf("ibx, iby: (%3d, %3d)\n", ibx, iby);
 
 					#if SERIAL_DEBUG
 						printf("\nStart of Block %d computation.\n", block_ID);
@@ -1565,7 +1570,7 @@ the second is that of the initial model, and the third that of the first sample.
 					printf("End of Block %d computation.\n\n", block_ID);
 				#endif
 				}// End of a paralell region - index: block_ID 
-
+			}// OMP parallel for block iteration 
 			#if SERIAL_DEBUG
 				printf("-------- End of parallel proposal %d --------\n\n", j);
 			#endif
