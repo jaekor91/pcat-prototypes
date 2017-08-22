@@ -135,8 +135,8 @@
 	#define NSAMPLE 1 // Numboer samples to collect
 	#define BLOCK_ID_DEBUG 0
 #else // If in normal mode
-	#define NLOOP 1000// Number of times to loop before sampling
-	#define NSAMPLE 500// Numboer samples to collect
+	#define NLOOP 100// Number of times to loop before sampling
+	#define NSAMPLE 10// Numboer samples to collect
 #endif 
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
@@ -504,7 +504,10 @@ int main(int argc, char *argv[])
 		#endif
 
 		// Initialize the MODEL matrix before being used as the scratch pad for generating mock data.
-		init_mat_float(MODEL, PADDED_IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region			
+		init_mat_float(MODEL, PADDED_IMAGE_SIZE, TRUE_BACK, 0); // Fill data with a flat value including the padded region.
+
+		// Initialize the DATA matrix before using it as the scratch pad for computing model difference image to be added.
+		init_mat_float(DATA, PADDED_IMAGE_SIZE, 0, 0); // Fill data with a flat value including the padded region			
 
 		// row and col location of the star based on X, Y values.
 		// Compute the star PSFs by multiplying the design matrix with the appropriate portion of dX.
@@ -516,26 +519,13 @@ int main(int argc, char *argv[])
 				printf("Proposed %d obj's ix, iy: %d, %d\n", k, idx_x, idx_y);
 			#endif
 			#if POSITIVE_PSF
-				// If clipping any negative vals of PSF is demanded, then compute the whole PSF first and then add.
-				float positive_psf_helper[NPIX2];
-				#pragma omp simd
+				// Compute the cumulative change and store in DATA variable.
+				#pragma omp simd collapse(2)
 				for (l=0; l<NPIX2; l++){
-					positive_psf_helper[l] = 0;
-				}
-				// Compute the PSF
-				for (l=0; l<NPIX2; l++){
-					#pragma omp simd
 					for (m=0; m<INNER; m++){
-						positive_psf_helper[l] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
+						DATA[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] += mock_dX[k*AVX_CACHE2+m] * A[m*NPIX2+l];
 					}
-				}
-				// Add the PSF
-				#pragma omp simd
-				for (l=0; l<NPIX2; l++){
-					float a = positive_psf_helper[l];
-					float b = MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)];
-					MODEL[(idx_x+(l/NPIX)-NPIX_div2)*PADDED_NUM_COLS + (idx_y+(l%NPIX)-NPIX_div2)] = max(a+b, 1);
-			}// End of PSF calculation for K-th star
+				}// End of PSF calculation for K-th star
 
 			#else
 				#pragma omp simd collapse(2)
@@ -546,6 +536,18 @@ int main(int argc, char *argv[])
 				}// End of PSF calculation for K-th star					
 			#endif				
 		}
+
+		#if POSITIVE_PSF
+			// Add the diff image to the MODEL and clip any negative values to 1.
+			#pragma omp simd collapse(2)
+			for (l=PAD; l<(PAD+NUM_ROWS); l++){
+				for (m=PAD; m<(PAD+NUM_COLS); m++){
+					int im_idx = PADDED_NUM_COLS*l+m;
+					MODEL[im_idx] = max(1, MODEL[im_idx]+DATA[im_idx]);
+				}
+			}
+		#endif 
+
 		#if SERIAL_DEBUG
 			printf("Finished generating the underlying flux of the model.\n");
 		#endif
