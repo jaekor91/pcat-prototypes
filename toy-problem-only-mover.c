@@ -83,7 +83,7 @@
 							// If 0, then use the user provided data.
 
 // ---- Global parameters ---- // 
-#define LINEAR_FLUX_STEPSIZE 100.0
+#define LINEAR_FLUX_STEPSIZE 100000.0
 #define GAIN 1.0 // ADU to photoelectron gain factor. MODEL and DATA are given in ADU units. Flux is proportional to ADU.
 #define TRUE_MIN_FLUX 1250.0
 #define TRUE_ALPHA 2.00
@@ -117,7 +117,7 @@
 #define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
 #define OFFSET_PERIOD 100// Fix the offset for a prescribed number of proposals.
 #define PRINT_PERF 1// If 1, print peformance after every sample.
-#define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
+#define RANDOM_WALK 1 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
 #define SAVE_CHAIN 1 // If 1, save the chain for x, y, f, loglike.
 #define SAVE_ONLY_LAST 1 // If 1, only save the last sample
@@ -136,12 +136,12 @@
 	#define NSAMPLE 1 // Numboer samples to collect
 	#define BLOCK_ID_DEBUG 0
 #else // If in normal mode
-	#define NLOOP 1000// Number of times to loop before sampling
-	#define NSAMPLE 10// Numboer samples to collect
+	#define NLOOP 1// Number of times to loop before sampling
+	#define NSAMPLE 2// Numboer samples to collect
 #endif 
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
-#define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
-#define FREEZE_F 0 // If 1, free the flux
+#define FREEZE_XY 1 // If 1, freeze the X, Y positins of the objs.
+#define FREEZE_F 1 // If 1, free the flux
 
 
 
@@ -865,7 +865,6 @@ the second is that of the initial model, and the third that of the first sample.
 	for (s=0; s<NSAMPLE; s++){
 
 		// (Re) - initialize the acceptance rate array
-		#pragma omp parallel for simd
 		for (i=0; i<NUM_BLOCKS_TOTAL; i++){
 			ACCEPT_RATE[i*AVX_CACHE2+BIT_ACCEPT] = 0;
 			ACCEPT_RATE[i*AVX_CACHE2+BIT_REJECT] = 0;			
