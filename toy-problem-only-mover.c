@@ -874,17 +874,13 @@ the second is that of the initial model, and the third that of the first sample.
 		} 
 
 		start = omp_get_wtime(); // Timing starts here 		
-		for (j=0; j<NLOOP; j++){
+		for (j=0; j<NLOOP; j++){ // Begining of parallel proposals loop
 			#if SERIAL_DEBUG 
-				printf("\n------ Start of proposals %d -------\n", j);
+				printf("\n------ Start of parallel proposals %d -------\n", j);
 			#endif
 
 			// ------- Generating offsets ------ //
-			// Note that image is padded with BLOCK/2 on every side.
-			// The mesh size is the same as the image size. It's shifted in each iteration.
-			// Positive offset corresponds to adding offset_X, offset_Y for getting the 
-			// relevant DATA and MODEL elements but subtracting when computing the block id.
-
+			// Note that image is padded with PAD on every side.
 			int offset_X = GLOBAL_OFFSET_X; 
 			int offset_Y = GLOBAL_OFFSET_Y; 				
 			#if OFFSET // If period offset is asked for
@@ -975,10 +971,8 @@ the second is that of the initial model, and the third that of the first sample.
 			// Iterating through all the blocks.
 			// IMPORTANT: X is the row direction and Y is the column direction.
 			time_seed = (int) (time(NULL)) * rand();	
-			#pragma omp parallel default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A, ACCEPT_RATE) private(k, l, m, jstar, istar, xx, yy)
-			{
-				int block_ID; 
-				#pragma omp for
+			int block_ID; 
+			#pragma omp parallel for default(none) shared(MODEL, DATA, OBJS_HASH, OBJS, time_seed, offset_X, offset_Y, A, ACCEPT_RATE) private(k, l, m, jstar, istar, xx, yy, block_ID)
 				for (block_ID=0; block_ID < NUM_BLOCKS_TOTAL; block_ID+=INCREMENT){ 			
 					int k, l, m; // private loop variables
 					int ibx = block_ID / NUM_BLOCKS_IN_Y;
@@ -1570,19 +1564,13 @@ the second is that of the initial model, and the third that of the first sample.
 				#if SERIAL_DEBUG
 					printf("End of Block %d computation.\n\n", block_ID);
 				#endif
-				}// End of iteration through blocks. End of a paralell region.
-			}// End of OMP parallel region
-			// Print the x, y, f of a particular particle
-			// int idx_ref = (MAX_STARS-1) * AVX_CACHE;
-			// printf("%d: (x, y, f) = (%.3f,  %.3f,  %.3f)\n", j, OBJS[idx_ref + BIT_X], OBJS[idx_ref + BIT_Y], OBJS[idx_ref + BIT_FLUX]);
-			// printf("\n");
+				}// End of a paralell region - index: block_ID 
 
 			#if SERIAL_DEBUG
-				printf("-------- End of iteration %d --------\n\n", j);
+				printf("-------- End of parallel proposal %d --------\n\n", j);
 			#endif
-			// printf("Offset X, Y: %d, %d\n", offset_X, offset_Y);
 
-		} // End of parallel iteration loop
+		} // End of parallel proposals loop - index j
 
 		end = omp_get_wtime();		
 		dt = end - start; // Compute time for NLOOP iterations
@@ -1813,8 +1801,13 @@ the second is that of the initial model, and the third that of the first sample.
 			printf("\n");				
 		#endif	
 
-	} // End of sampling looop
+	} // End of sampling loop -- index s
 	printf("Sampling ended.\n");
+
+
+
+
+
 
 	// Total time taken
 	dt_total += omp_get_wtime();
@@ -1822,10 +1815,6 @@ the second is that of the initial model, and the third that of the first sample.
 	// Re-print basic parameters of the problem.
 
 	
-
-	
-
-
 
 	printf("\nExit program.\n");	
 	// Close files.
