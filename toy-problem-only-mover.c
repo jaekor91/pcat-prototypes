@@ -54,7 +54,7 @@
 // Note that the image size is not a simple multiple of the size of block being used.
 // NUM_ROWS and NUM_COLS must be even numbers.
 // The block mesh's center will conincide with the center of the image. 
-#define NUM_ROWS 64
+#define NUM_ROWS 256
 #define NUM_COLS NUM_ROWS
 #define IMAGE_SIZE (NUM_ROWS * NUM_COLS)
 #define PAD AVX_CACHE2
@@ -68,7 +68,7 @@
 // The mesh has to be large enough so that the image lies within the uniform coverage region.
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 8 // Core proposal region 
+#define REGION 4 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_IN_X ((int) (round((NUM_ROWS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_IN_Y ((int) (round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
@@ -78,7 +78,7 @@
 #define GLOBAL_OFFSET_Y ((int) (PADDED_NUM_COLS - (NUM_BLOCKS_IN_Y * BLOCK))/2) // Negative offsets correspond to positive offsets for the objects.
 
 // ---- Mock generation ----- //
-#define GENERATE_NEW_MOCK 1 // If 1, generate mock data based on the global parameters 
+#define GENERATE_NEW_MOCK 0 // If 1, generate mock data based on the global parameters 
 							// below and using the image dimensions above. 
 							// If 0, then use the user provided data.
 
@@ -108,13 +108,13 @@
 #define BIT_FLUX 2
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 4 // Number of threads used for execution.
+#define NUM_THREADS 1 // Number of threads used for execution.
 #define POSITIVE_MODEL 1	// If 1, whenever the computed image is negative, clip it at 1.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
 #define MODEL_EVAL_STEP 1 // If 0, model eval step is disabled.
 #define COMPUTE_LOGLIKE_LOCAL 1// If 0, a random integer is used for the log likelihood in each block.
-#define OFFSET 1 // If 1, blocks are offset by a random amount in each iteration.
+#define OFFSET 0 // If 1, blocks are offset by a random amount in each iteration.
 #define PRINT_PERF 1// If 1, print peformance after every sample.
 #define RANDOM_WALK 0 // If 1, all proposed changes are automatically accepted.
 #define COMPUTE_LOGLIKE 1 // If 1, loglike based on the current model is computed when collecting the sample.
@@ -136,7 +136,7 @@
 	#define BLOCK_ID_DEBUG 0
 #else // If in normal mode
 	#define NLOOP 1000// Number of times to loop before sampling
-	#define NSAMPLE 1000// Numboer samples to collect
+	#define NSAMPLE 10// Numboer samples to collect
 #endif 
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
@@ -566,7 +566,7 @@ int main(int argc, char *argv[])
 	#else // If GENERATE_NEW_MOCK is 0
 		FILE *fp_DATA = NULL;
 		// fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
-		fp_DATA = fopen("MOCK_DATA_NUMROWS256_NUMCOLS256_D0p1.bin", "rb"); // Note that the data matrix is already padded.
+		fp_DATA = fopen("MOCK_DATA_test1.bin", "rb"); // Note that the data matrix is already padded.
 		fread(&DATA, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA);
 		fclose(fp_DATA);
 		printf("\n");
@@ -574,7 +574,7 @@ int main(int argc, char *argv[])
 
 		FILE *fp_DATA_TRUE_MODEL = NULL;
 		// fp_DATA = fopen("MOCK_DATA_TRUE_MODEL.bin", "rb"); // Note that the data matrix is already padded.
-		fp_DATA_TRUE_MODEL = fopen("MOCK_DATA_TRUE_MODEL_NUMROWS256_NUMCOLS256_D0p1.bin", "rb"); // Note that the data matrix is already padded.
+		fp_DATA_TRUE_MODEL = fopen("MOCK_DATA_TRUE_MODEL_test1.bin", "rb"); // Note that the data matrix is already padded.
 		fread(&MODEL, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA_TRUE_MODEL);
 		fclose(fp_DATA_TRUE_MODEL);
 		printf("Read in the true model for DATA.\n");
