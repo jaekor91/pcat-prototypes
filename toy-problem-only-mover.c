@@ -37,7 +37,7 @@
 #define INNER 10
 #define AVX_CACHE2 16
 #define AVX_CACHE AVX_CACHE2
-#define MAXCOUNT_BLOCK 128 // Maximum number of objects expected to be found in a proposal region. 
+#define MAXCOUNT_BLOCK 64 // Maximum number of objects expected to be found in a proposal region. 
 #define MAXCOUNT MAXCOUNT_BLOCK// Max number of objects to be "collected" by each thread when computing block id for each object.
 							// If too small, the hashing algorithm won't work as one thread will be overstepping into another's region.
 #define INCREMENT 1 // Block loop increment
@@ -68,7 +68,7 @@
 // The mesh has to be large enough so that the image lies within the uniform coverage region.
 #define MARGIN1 2 // Margin width of the block
 #define MARGIN2 NPIX_div2 // Half of PSF
-#define REGION 20 // Core proposal region 
+#define REGION 12 // Core proposal region 
 #define BLOCK (REGION + 2 * (MARGIN1 + MARGIN2))
 #define NUM_BLOCKS_IN_X ((int) (round((NUM_ROWS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
 #define NUM_BLOCKS_IN_Y ((int) (round((NUM_COLS-2*(MARGIN1+MARGIN2))/((float) BLOCK))+1))
@@ -90,7 +90,7 @@
 #define TRUE_BACK 900.0
 #define SET_UPPER_FLUX_LIMIT 0 // If 1, the above limit is applied.
 #define FLUX_UPPER_LIMIT 1000.0 // If the proposed flux values become greater than this, then set it to this value.
-#define STAR_DENSITY_PER_PIXEL (0.1)  // 102.4 x (36/1024) ~ 4
+#define STAR_DENSITY_PER_PIXEL (0.01)  // 102.4 x (36/1024) ~ 4
 #define NUM_TRUE_STARS ((int) (STAR_DENSITY_PER_PIXEL * IMAGE_SIZE)) // Maximum number of stars to try putting in. // Note that if the size is too big, then segfault will ocurr
 #define MAX_STARS ((int) ((NUM_TRUE_STARS))) // The number of stars to use to model the image.
 
@@ -108,7 +108,7 @@
 #define BIT_FLUX 2
 
 // ----- Program run parameters ----- // 
-#define NUM_THREADS 2	 // Number of threads used for execution.
+#define NUM_THREADS 4	 // Number of threads used for execution.
 #define POSITIVE_MODEL 1	// If 1, whenever the computed image is negative, clip it at 1.
 #define PERIODIC_MODEL_RECOMPUTE 0// If 1, at the end of each loop recompute the model from scatch to avoid accomulation of numerical error. 
 #define MODEL_RECOMPUTE_PERIOD 1000 // Recompute the model after 1000 iterations.
@@ -137,7 +137,7 @@
 	#define BLOCK_ID_DEBUG 0
 #else // If in normal mode
 	#define NLOOP 1000// Number of times to loop before sampling
-	#define NSAMPLE 500// Numboer samples to collect
+	#define NSAMPLE 1000// Numboer samples to collect
 #endif 
 #define ONE_STAR_DEBUG 0 // Use only one star. NUM_BLOCKS_PER_DIM and MAX_STARS shoudl be be both 1.
 #define FREEZE_XY 0 // If 1, freeze the X, Y positins of the objs.
@@ -567,7 +567,7 @@ int main(int argc, char *argv[])
 	#else // If GENERATE_NEW_MOCK is 0
 		FILE *fp_DATA = NULL;
 		// fp_DATA = fopen("MOCK_DATA.bin", "rb"); // Note that the data matrix is already padded.
-		fp_DATA = fopen("MOCK_DATA_test1.bin", "rb"); // Note that the data matrix is already padded.
+		fp_DATA = fopen("MOCK_DATA_test2.bin", "rb"); // Note that the data matrix is already padded.
 		fread(&DATA, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA);
 		fclose(fp_DATA);
 		printf("\n");
@@ -575,7 +575,7 @@ int main(int argc, char *argv[])
 
 		FILE *fp_DATA_TRUE_MODEL = NULL;
 		// fp_DATA = fopen("MOCK_DATA_TRUE_MODEL.bin", "rb"); // Note that the data matrix is already padded.
-		fp_DATA_TRUE_MODEL = fopen("MOCK_DATA_TRUE_MODEL_test1.bin", "rb"); // Note that the data matrix is already padded.
+		fp_DATA_TRUE_MODEL = fopen("MOCK_DATA_TRUE_MODEL_test2.bin", "rb"); // Note that the data matrix is already padded.
 		fread(&MODEL, sizeof(float), PADDED_IMAGE_SIZE, fp_DATA_TRUE_MODEL);
 		fclose(fp_DATA_TRUE_MODEL);
 		printf("Read in the true model for DATA.\n");
@@ -1778,8 +1778,8 @@ the second is that of the initial model, and the third that of the first sample.
 			#if COMPUTE_LOGLIKE
 				printf("Time for computing loglike (us): %.3f\n", dt_loglike * 1e06);
 				printf("Current lnL: %.3f\n", lnL);
-				// printf("Current Model sum: %.3f\n", model_sum);
-				// printf("Current Data sum: %.3f\n", data_sum);
+				double rel_diff = ((lnL_true-lnL)/(lnL_true)) * 100;
+				printf("Rel diff with true lnL in percent: %.3f\n", rel_diff);
 			#endif
 			#if PERIODIC_MODEL_RECOMPUTE
 				printf("Time for recomputing the whole image (us): %.3f\n", dt_recompute * 1e06);				
